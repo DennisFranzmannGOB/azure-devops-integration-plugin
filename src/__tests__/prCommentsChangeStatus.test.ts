@@ -11,6 +11,7 @@ jest.mock('../api', () => ({
     getPrThreads: jest.fn(),
     addPullRequestFileComment: jest.fn(),
     replyToThread: jest.fn(),
+    searchIdentitiesByDisplayName: jest.fn(),
     updateThreadStatus: jest.fn(),
 }));
 
@@ -18,6 +19,8 @@ const api = jest.requireMock('../api') as {
     getPrThreads: jest.Mock;
     updateThreadStatus: jest.Mock;
     addPullRequestFileComment: jest.Mock;
+    replyToThread: jest.Mock;
+    searchIdentitiesByDisplayName: jest.Mock;
 };
 
 const auth = jest.requireMock('../auth') as {
@@ -55,6 +58,31 @@ function buildController(mockVsThread: Record<string, unknown>): PrCommentContro
     return new PrCommentController({} as any);
 }
 
+async function setupPlacedThread(status: PrThread['status'] = 'active') {
+    const mockVsThread = {
+        uri: undefined as unknown,
+        range: undefined as unknown,
+        comments: [] as unknown[],
+        canReply: false,
+        label: undefined as string | undefined,
+        collapsibleState: 1,
+        contextValue: undefined as string | undefined,
+        dispose: jest.fn(),
+    };
+
+    const controller = buildController(mockVsThread);
+
+    const docUri = vscode.Uri.parse(
+        'azuredevops-pr://org/proj/repo1/src123/src/app.ts?prId=42&side=right'
+    );
+    (vscode.workspace as any).textDocuments = [{ uri: docUri }];
+
+    api.getPrThreads.mockResolvedValue([makeThread({ status })]);
+    await controller.loadThreads('org', 'proj', 'repo1', 42);
+
+    return { controller, mockVsThread };
+}
+
 describe('PrCommentController.changeStatus', () => {
     beforeEach(() => {
         api.getPrThreads.mockReset();
@@ -66,32 +94,6 @@ describe('PrCommentController.changeStatus', () => {
         (vscode.workspace as any).textDocuments = [];
         (vscode.comments.createCommentController as jest.Mock).mockClear();
     });
-
-    async function setupPlacedThread(status: PrThread['status'] = 'active') {
-        const mockVsThread = {
-            uri: undefined as unknown,
-            range: undefined as unknown,
-            comments: [] as unknown[],
-            canReply: false,
-            label: undefined as string | undefined,
-            collapsibleState: 1,
-            contextValue: undefined as string | undefined,
-            dispose: jest.fn(),
-        };
-
-        const controller = buildController(mockVsThread);
-
-        // Provide a document whose URI matches what placeFileThread looks for
-        const docUri = vscode.Uri.parse(
-            'azuredevops-pr://org/proj/repo1/src123/src/app.ts?prId=42&side=right'
-        );
-        (vscode.workspace as any).textDocuments = [{ uri: docUri }];
-
-        api.getPrThreads.mockResolvedValue([makeThread({ status })]);
-        await controller.loadThreads('org', 'proj', 'repo1', 42);
-
-        return { controller, mockVsThread };
-    }
 
     it('calls updateThreadStatus with the requested status', async () => {
         const { controller, mockVsThread } = await setupPlacedThread('active');
@@ -268,10 +270,15 @@ describe('PrCommentController.createThread on review-mode files', () => {
         api.getPrThreads.mockResolvedValue([]);
         api.addPullRequestFileComment.mockReset();
         api.addPullRequestFileComment.mockResolvedValue({ id: 99 });
+        api.replyToThread.mockReset();
+        api.replyToThread.mockResolvedValue({ id: 100 });
+        api.searchIdentitiesByDisplayName.mockReset();
+        api.searchIdentitiesByDisplayName.mockResolvedValue([]);
         auth.getToken.mockReset();
         auth.getToken.mockResolvedValue('token');
         (vscode.workspace as any).textDocuments = [];
         (vscode.comments.createCommentController as jest.Mock).mockClear();
+        (vscode.window.showErrorMessage as jest.Mock).mockReset();
     });
 
     it('posts a comment using review-mode context for real file URIs', async () => {
@@ -329,5 +336,94 @@ describe('PrCommentController.createThread on review-mode files', () => {
         } as vscode.CommentReply);
 
         expect(api.addPullRequestFileComment).not.toHaveBeenCalled();
+    });
+
+    it('rewrites a leading mention before posting a new inline comment', async () => {
+        api.searchIdentitiesByDisplayName.mockResolvedValue([
+            { id: 'user-1', displayName: 'Dennis Mike' },
+        ]);
+
+        const realUri = vscode.Uri.parse('file:///repo/src/app.ts');
+        const mockVsThread = {
+            uri: realUri, range: new vscode.Range(4, 0, 4, 0),
+            comments: [], canReply: false, label: undefined,
+            collapsibleState: 1, contextValue: undefined, dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        await controller.registerReviewModeFile(realUri, 'org', 'proj', 'repo1', 42, '/src/app.ts');
+
+        await controller.createThread({
+            thread: mockVsThread as unknown as vscode.CommentThread,
+            text: '@Dennis Mike: das ist ein Test',
+        } as vscode.CommentReply);
+
+        expect(api.searchIdentitiesByDisplayName).toHaveBeenCalledWith('org', 'Dennis Mike', 'token');
+        expect(api.addPullRequestFileComment).toHaveBeenCalledWith(
+            'org', 'proj', 'repo1', 42,
+            '@<user-1> Dennis das ist ein Test',
+            expect.objectContaining({ filePath: '/src/app.ts', rightFileStart: expect.anything() }),
+            'token'
+        );
+        expect((mockVsThread.comments[0] as any).body.value).toBe('@<user-1> Dennis das ist ein Test');
+    });
+
+    it('shows an error and skips posting when an inline mention is ambiguous', async () => {
+        api.searchIdentitiesByDisplayName.mockResolvedValue([
+            { id: 'user-1', displayName: 'Dennis Mike' },
+            { id: 'user-2', displayName: 'Dennis Mike' },
+        ]);
+
+        const realUri = vscode.Uri.parse('file:///repo/src/app.ts');
+        const mockVsThread = {
+            uri: realUri, range: new vscode.Range(4, 0, 4, 0),
+            comments: [], canReply: false, label: undefined,
+            collapsibleState: 1, contextValue: undefined, dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        await controller.registerReviewModeFile(realUri, 'org', 'proj', 'repo1', 42, '/src/app.ts');
+
+        await controller.createThread({
+            thread: mockVsThread as unknown as vscode.CommentThread,
+            text: '@Dennis Mike: ping',
+        } as vscode.CommentReply);
+
+        expect(api.addPullRequestFileComment).not.toHaveBeenCalled();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            'Failed to add comment: Multiple Azure DevOps users matched "Dennis Mike". Use "@FirstName LastName: your comment".'
+        );
+    });
+});
+
+describe('PrCommentController.replyToThread mention handling', () => {
+    beforeEach(() => {
+        api.getPrThreads.mockReset();
+        api.getPrThreads.mockResolvedValue([]);
+        api.replyToThread.mockReset();
+        api.replyToThread.mockResolvedValue({ id: 101 });
+        api.searchIdentitiesByDisplayName.mockReset();
+        api.searchIdentitiesByDisplayName.mockResolvedValue([]);
+        auth.getToken.mockReset();
+        auth.getToken.mockResolvedValue('token');
+        (vscode.workspace as any).textDocuments = [];
+        (vscode.comments.createCommentController as jest.Mock).mockClear();
+        (vscode.window.showErrorMessage as jest.Mock).mockReset();
+    });
+
+    it('rewrites a leading mention before replying to an existing thread', async () => {
+        api.searchIdentitiesByDisplayName.mockResolvedValue([
+            { id: 'user-1', displayName: 'Dennis Mike' },
+        ]);
+
+        const { controller, mockVsThread } = await setupPlacedThread('active');
+
+        await controller.replyToThread({
+            thread: mockVsThread as vscode.CommentThread,
+            text: '@Dennis Mike: reply text',
+        } as vscode.CommentReply);
+
+        expect(api.replyToThread).toHaveBeenCalledWith(
+            'org', 'proj', 'repo1', 42, 7, '@<user-1> Dennis reply text', 'token'
+        );
+        expect(((mockVsThread.comments as any[]).at(-1) as any).body.value).toBe('@<user-1> Dennis reply text');
     });
 });

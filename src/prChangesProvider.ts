@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrChange, PrThread, replyToThread, addPullRequestComment, ThreadStatus, updateThreadStatus } from './api';
+import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrChange, PrThread, replyToThread, addPullRequestComment, searchIdentitiesByDisplayName, ThreadStatus, updateThreadStatus } from './api';
 import { getToken } from './auth';
+import { prepareCommentContentWithMentions } from './commentMentions';
 import { buildPrFileUri } from './prContentProvider';
 import { setCommentContent, buildCommentDocUri, clearCommentContent } from './prCommentDocProvider';
 import { ReviewedFilesStore } from './reviewedFiles';
@@ -503,8 +504,17 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         const project = pr.repository?.project?.name ?? '';
         const repoId = pr.repository?.id ?? '';
 
-        await replyToThread(org, project, repoId, pr.pullRequestId, item.thread.id, content, token);
-        this.refresh();
+        try {
+            const preparedContent = await prepareCommentContentWithMentions(
+                content,
+                (lookupName) => searchIdentitiesByDisplayName(org, lookupName, token),
+            );
+            await replyToThread(org, project, repoId, pr.pullRequestId, item.thread.id, preparedContent, token);
+            this.refresh();
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to reply: ${msg}`);
+        }
     }
 
     async changeThreadStatus(item: PrCommentThreadItem, status: ThreadStatus): Promise<void> {
@@ -543,8 +553,17 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         const project = pr.repository?.project?.name ?? '';
         const repoId = pr.repository?.id ?? '';
 
-        await addPullRequestComment(org, project, repoId, pr.pullRequestId, content, token);
-        this.refresh();
+        try {
+            const preparedContent = await prepareCommentContentWithMentions(
+                content,
+                (lookupName) => searchIdentitiesByDisplayName(org, lookupName, token),
+            );
+            await addPullRequestComment(org, project, repoId, pr.pullRequestId, preparedContent, token);
+            this.refresh();
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to add comment: ${msg}`);
+        }
     }
 
     async openComment(item: PrCommentThreadItem): Promise<void> {

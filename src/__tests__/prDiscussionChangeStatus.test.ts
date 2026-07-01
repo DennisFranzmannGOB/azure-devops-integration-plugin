@@ -11,12 +11,16 @@ jest.mock('../api', () => ({
     getPrIterations: jest.fn(),
     addPullRequestComment: jest.fn(),
     replyToThread: jest.fn(),
+    searchIdentitiesByDisplayName: jest.fn(),
     updateThreadStatus: jest.fn(),
 }));
 
 const api = jest.requireMock('../api') as {
     getPrThreads: jest.Mock;
     getPrIterations: jest.Mock;
+    addPullRequestComment: jest.Mock;
+    replyToThread: jest.Mock;
+    searchIdentitiesByDisplayName: jest.Mock;
     updateThreadStatus: jest.Mock;
 };
 
@@ -68,10 +72,17 @@ function makeThread(overrides: Partial<PrThread> = {}): PrThread {
 
 describe('PrChangesProvider.changeThreadStatus', () => {
     beforeEach(() => {
+        api.addPullRequestComment.mockReset();
+        api.addPullRequestComment.mockResolvedValue(undefined);
+        api.replyToThread.mockReset();
+        api.replyToThread.mockResolvedValue({ id: 9 });
+        api.searchIdentitiesByDisplayName.mockReset();
+        api.searchIdentitiesByDisplayName.mockResolvedValue([]);
         api.updateThreadStatus.mockReset();
         api.updateThreadStatus.mockResolvedValue(undefined);
         auth.getToken.mockReset();
         auth.getToken.mockResolvedValue('token');
+        (vscode.window.showInputBox as jest.Mock).mockReset();
         (vscode.window.showErrorMessage as jest.Mock).mockReset();
     });
 
@@ -217,5 +228,38 @@ describe('PrChangesProvider.changeThreadStatus', () => {
         const pendingThread = makeThread({ status: 'pending' });
         const pendingItem = new PrCommentThreadItem(pendingThread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
         expect(pendingItem.contextValue).toBe('discussionThread.pending');
+    });
+
+    it('rewrites a leading mention before adding a general comment', async () => {
+        api.searchIdentitiesByDisplayName.mockResolvedValue([
+            { id: 'user-1', displayName: 'Dennis Mike' },
+        ]);
+        (vscode.window.showInputBox as jest.Mock).mockResolvedValue('@Dennis Mike: das ist ein Test');
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+
+        await provider.addGeneralComment();
+
+        expect(api.searchIdentitiesByDisplayName).toHaveBeenCalledWith('org', 'Dennis Mike', 'token');
+        expect(api.addPullRequestComment).toHaveBeenCalledWith(
+            'org', 'proj', 'repo1', 42, '@<user-1> Dennis das ist ein Test', 'token'
+        );
+    });
+
+    it('shows an error and skips replying when no exact mention match exists', async () => {
+        api.searchIdentitiesByDisplayName.mockResolvedValue([]);
+        (vscode.window.showInputBox as jest.Mock).mockResolvedValue('@Dennis Mike: ping');
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        const item = new PrCommentThreadItem(makeThread(), 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+
+        await provider.replyToDiscussionThread(item);
+
+        expect(api.replyToThread).not.toHaveBeenCalled();
+        expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+            'Failed to reply: No Azure DevOps user matched "Dennis Mike". Use "@FirstName LastName: your comment".'
+        );
     });
 });

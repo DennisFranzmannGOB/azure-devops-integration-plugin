@@ -6,9 +6,11 @@ import {
     abandonPullRequest,
     addPullRequestComment,
     getPullRequestDetails,
+    searchIdentitiesByDisplayName,
     updatePullRequestTitle,
 } from '../api';
 import { getAuthenticationRequiredMessage, getToken } from '../auth';
+import { prepareCommentContentWithMentions } from '../commentMentions';
 import { buildPullRequestUrl } from '../prLinks';
 import { parsePrFileUri } from '../prContentProvider';
 
@@ -125,7 +127,11 @@ export function registerPrActions(
             });
             if (!comment) { return; }
             try {
-                await addPullRequestComment(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, comment, ctx.token);
+                const preparedComment = await prepareCommentContentWithMentions(
+                    comment,
+                    (lookupName) => searchIdentitiesByDisplayName(ctx.org, lookupName, ctx.token),
+                );
+                await addPullRequestComment(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, preparedComment, ctx.token);
                 vscode.window.showInformationMessage('Comment added.');
                 provider.refresh();
             } catch (e: any) {

@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { PrThread, getPrThreads, addPullRequestFileComment, replyToThread, updateThreadStatus, ThreadStatus } from './api';
+import { PrThread, getPrThreads, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
+import { prepareCommentContentWithMentions } from './commentMentions';
 
 interface ThreadMeta {
     org: string;
@@ -239,9 +240,13 @@ export class PrCommentController implements vscode.Disposable {
         const endPosition = { line: endLine, offset: 1 };
 
         try {
+            const preparedText = await prepareCommentContentWithMentions(
+                reply.text,
+                (lookupName) => searchIdentitiesByDisplayName(org, lookupName, token),
+            );
             const result = await addPullRequestFileComment(
                 org, project, repoId, prId,
-                reply.text,
+                preparedText,
                 {
                     filePath,
                     ...(isRight
@@ -254,7 +259,7 @@ export class PrCommentController implements vscode.Disposable {
             reply.thread.comments = [
                 ...reply.thread.comments,
                 {
-                    body: new vscode.MarkdownString(reply.text),
+                    body: new vscode.MarkdownString(preparedText),
                     mode: vscode.CommentMode.Preview,
                     author: { name: 'You' },
                     timestamp: new Date(),
@@ -291,15 +296,19 @@ export class PrCommentController implements vscode.Disposable {
         }
 
         try {
+            const preparedText = await prepareCommentContentWithMentions(
+                reply.text,
+                (lookupName) => searchIdentitiesByDisplayName(meta.org, lookupName, token),
+            );
             await replyToThread(
                 meta.org, meta.project, meta.repoId, meta.prId,
-                meta.threadId, reply.text, token
+                meta.threadId, preparedText, token
             );
 
             reply.thread.comments = [
                 ...reply.thread.comments,
                 {
-                    body: new vscode.MarkdownString(reply.text),
+                    body: new vscode.MarkdownString(preparedText),
                     mode: vscode.CommentMode.Preview,
                     author: { name: 'You' },
                     timestamp: new Date(),

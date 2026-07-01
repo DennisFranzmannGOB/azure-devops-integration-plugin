@@ -204,6 +204,58 @@ export async function getCurrentUserAssignmentValue(org: string, token: string):
     return undefined;
 }
 
+export interface IdentitySearchResult {
+    id: string;
+    displayName: string;
+    uniqueName?: string;
+}
+
+export async function searchIdentitiesByDisplayName(
+    org: string,
+    input: string,
+    token: string,
+): Promise<IdentitySearchResult[]> {
+    const trimmedInput = input.trim();
+    if (!trimmedInput) {
+        return [];
+    }
+
+    const url =
+        `https://vssps.dev.azure.com/${encodeURIComponent(org)}` +
+        `/_apis/identities?searchFilter=General&filterValue=${encodeURIComponent(trimmedInput)}` +
+        `&queryMembership=None&api-version=7.1-preview.1`;
+    const body = await httpsGet(url, authHeaders(token));
+    const data = JSON.parse(body) as {
+        value?: Array<{
+            id?: string;
+            isContainer?: boolean;
+            providerDisplayName?: string;
+            customDisplayName?: string;
+            displayName?: string;
+            uniqueName?: string;
+            properties?: Record<string, unknown>;
+        }>;
+    };
+
+    return (data.value ?? [])
+        .filter((identity): identity is NonNullable<typeof identity> & { id: string } =>
+            typeof identity?.id === 'string' && identity.id.trim().length > 0 && !identity.isContainer,
+        )
+        .map((identity) => ({
+            id: identity.id,
+            displayName: getStringProperty(identity, 'providerDisplayName')
+                ?? getStringProperty(identity, 'customDisplayName')
+                ?? getStringProperty(identity, 'displayName')
+                ?? '',
+            uniqueName: getStringProperty(identity, 'uniqueName')
+                ?? getIdentityBagString(identity.properties, 'Account')
+                ?? getIdentityBagString(identity.properties, 'Mail')
+                ?? getIdentityBagString(identity.properties, 'Email')
+                ?? getIdentityBagString(identity.properties, 'SignInAddress'),
+        }))
+        .filter((identity) => identity.displayName.trim().length > 0);
+}
+
 async function fetchPullRequests(
     org: string,
     token: string,
