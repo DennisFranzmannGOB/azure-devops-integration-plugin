@@ -85,7 +85,21 @@ export class Range {
 }
 export class Selection extends Range { }
 export enum TextEditorRevealType { InCenter = 0 }
-export class EventEmitter { fire() { } event = () => { }; }
+export class EventEmitter<T = void> {
+    private listeners: Array<(e: T) => void> = [];
+    fire(data?: T) {
+        for (const l of this.listeners) { l(data as T); }
+    }
+    event = (listener: (e: T) => void): { dispose: () => void } => {
+        this.listeners.push(listener);
+        return {
+            dispose: () => {
+                const i = this.listeners.indexOf(listener);
+                if (i >= 0) { this.listeners.splice(i, 1); }
+            },
+        };
+    };
+}
 export class TabInputText {
     constructor(public uri: { fsPath: string }) { }
 }

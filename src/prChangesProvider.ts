@@ -90,6 +90,7 @@ export class PrCommentThreadItem extends vscode.TreeItem {
         public readonly prId: number,
         public readonly sourceCommitId: string,
         public readonly targetCommitId: string,
+        public readonly repoName: string = '',
     ) {
         const userComments = thread.comments.filter(
             (c) => !c.isDeleted && c.commentType !== 'system'
@@ -457,7 +458,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                     const threads = fileThreads.get(c.item.path);
                     if (threads && threads.length > 0) {
                         item.children = threads.map((t) =>
-                            new PrCommentThreadItem(t, org, project, repoId, pr.pullRequestId, sourceCommitId, targetCommitId)
+                            new PrCommentThreadItem(t, org, project, repoId, pr.pullRequestId, sourceCommitId, targetCommitId, pr.repository?.name ?? '')
                         );
                         item.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
                     }
@@ -470,7 +471,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             // scrolling past the changed files list.
             if (generalThreads.length > 0) {
                 const generalChildren = generalThreads.map((t) =>
-                    new PrCommentThreadItem(t, org, project, repoId, pr.pullRequestId, sourceCommitId, targetCommitId)
+                    new PrCommentThreadItem(t, org, project, repoId, pr.pullRequestId, sourceCommitId, targetCommitId, pr.repository?.name ?? '')
                 );
                 rootItems.push(new PrGeneralCommentsItem(generalChildren));
             }

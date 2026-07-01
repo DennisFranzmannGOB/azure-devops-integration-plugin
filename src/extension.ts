@@ -88,12 +88,13 @@ export function activate(context: vscode.ExtensionContext) {
     // Filter & sort commands (Phase 5)
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevops.filterPullRequests', async () => {
+            const activeFilter = prProvider.getFilter();
             const options: Array<{ label: string; value: PrFilter; description?: string }> = [
-                { label: 'All', value: 'all', description: 'Show all pull requests' },
-                { label: 'Drafts', value: 'draft', description: 'Only draft PRs' },
-                { label: 'Needs my vote', value: 'needsMyVote', description: 'PRs where I haven\'t voted' },
-                { label: 'Has unresolved comments', value: 'hasComments', description: 'PRs with unresolved comments' },
-                { label: 'Checks failing', value: 'checksFailing', description: 'PRs with failed checks' },
+                { label: activeFilter === 'all' ? '$(check) All' : 'All', value: 'all', description: 'Show all pull requests' },
+                { label: activeFilter === 'draft' ? '$(check) Drafts' : 'Drafts', value: 'draft', description: 'Only draft PRs' },
+                { label: activeFilter === 'needsMyVote' ? '$(check) Needs my vote' : 'Needs my vote', value: 'needsMyVote', description: 'PRs where I haven\'t voted' },
+                { label: activeFilter === 'hasComments' ? '$(check) Has unresolved comments' : 'Has unresolved comments', value: 'hasComments', description: 'PRs with unresolved comments' },
+                { label: activeFilter === 'checksFailing' ? '$(check) Checks failing' : 'Checks failing', value: 'checksFailing', description: 'PRs with failed checks' },
             ];
             const picked = await vscode.window.showQuickPick(options, {
                 placeHolder: 'Filter pull requests...',
@@ -102,11 +103,15 @@ export function activate(context: vscode.ExtensionContext) {
                 prProvider.setFilter(picked.value);
             }
         }),
+        vscode.commands.registerCommand('azureDevops.filterPullRequestsActive', async () => {
+            return vscode.commands.executeCommand('azureDevops.filterPullRequests');
+        }),
         vscode.commands.registerCommand('azureDevops.sortPullRequests', async () => {
+            const activeSort = prProvider.getSort();
             const options: Array<{ label: string; value: PrSort; description?: string }> = [
-                { label: 'Default', value: 'default', description: 'Server order' },
-                { label: 'By title', value: 'title', description: 'Alphabetical by title' },
-                { label: 'By comment count', value: 'commentCount', description: 'Most comments first' },
+                { label: activeSort === 'default' ? '$(check) Default' : 'Default', value: 'default', description: 'Server order' },
+                { label: activeSort === 'title' ? '$(check) By title' : 'By title', value: 'title', description: 'Alphabetical by title' },
+                { label: activeSort === 'commentCount' ? '$(check) By comment count' : 'By comment count', value: 'commentCount', description: 'Most comments first' },
             ];
             const picked = await vscode.window.showQuickPick(options, {
                 placeHolder: 'Sort pull requests...',
@@ -263,6 +268,10 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('azureDevops.openDiscussionComment', (item: PrCommentThreadItem) => {
             return prChangesProvider.openComment(item);
+        }),
+        vscode.commands.registerCommand('azureDevops.openThreadInBrowser', async (item: PrCommentThreadItem) => {
+            const url = buildPullRequestThreadUrl(item.org, item.project, item.repoName, item.prId, item.thread.id);
+            await vscode.env.openExternal(vscode.Uri.parse(url));
         }),
         vscode.commands.registerCommand('azureDevops.replyToDiscussionThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.replyToDiscussionThread(item);

@@ -17,6 +17,8 @@ const mockPrChangesProvider = {
     replyToDiscussionThread: jest.fn(),
     changeThreadStatus: jest.fn().mockResolvedValue(undefined),
     addGeneralComment: jest.fn(),
+    onIterationResolved: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+    resetCurrentPr: jest.fn(),
 };
 
 const mockPrCommentController = {
