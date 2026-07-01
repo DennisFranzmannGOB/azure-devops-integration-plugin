@@ -180,18 +180,18 @@ export class PullRequestItem extends vscode.TreeItem {
         };
 
         const reviewerGroups: GroupDef[] = [
-            { key: 'rejected',            label: 'Rejected',                   iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
-            { key: 'needs-review',        label: 'Needs Review',               iconId: 'eye',          color: undefined },
-            { key: 'waiting-for-author',  label: 'Waiting for Author',         iconId: 'watch',        color: new vscode.ThemeColor('warningForeground') },
-            { key: 'approved-suggestions',label: 'Approved with Suggestions',  iconId: 'pass',         color: new vscode.ThemeColor('testing.iconPassed') },
-            { key: 'approved',            label: 'Approved',                   iconId: 'check',        color: new vscode.ThemeColor('testing.iconPassed') },
+            { key: 'rejected', label: 'Rejected', iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
+            { key: 'needs-review', label: 'Needs Review', iconId: 'eye', color: undefined },
+            { key: 'waiting-for-author', label: 'Waiting for Author', iconId: 'watch', color: new vscode.ThemeColor('warningForeground') },
+            { key: 'approved-suggestions', label: 'Approved with Suggestions', iconId: 'pass', color: new vscode.ThemeColor('testing.iconPassed') },
+            { key: 'approved', label: 'Approved', iconId: 'check', color: new vscode.ThemeColor('testing.iconPassed') },
         ];
 
         const creatorGroups: GroupDef[] = [
-            { key: 'rejected',           label: 'Rejected',              iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
-            { key: 'changes-requested',  label: 'Changes Requested',     iconId: 'watch',        color: new vscode.ThemeColor('warningForeground') },
-            { key: 'waiting-for-review', label: 'Waiting for Review',    iconId: 'eye',          color: undefined },
-            { key: 'approved',           label: 'Approved',              iconId: 'check',        color: new vscode.ThemeColor('testing.iconPassed') },
+            { key: 'rejected', label: 'Rejected', iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
+            { key: 'changes-requested', label: 'Changes Requested', iconId: 'watch', color: new vscode.ThemeColor('warningForeground') },
+            { key: 'waiting-for-review', label: 'Waiting for Review', iconId: 'eye', color: undefined },
+            { key: 'approved', label: 'Approved', iconId: 'check', color: new vscode.ThemeColor('testing.iconPassed') },
         ];
 
         const groups = isCreator ? creatorGroups : reviewerGroups;
