@@ -967,7 +967,11 @@ export async function getPrChanges(
 export async function getFileContent(
     org: string, project: string, repoId: string, path: string, commitId: string, token: string
 ): Promise<string> {
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/items?path=${encodeURIComponent(path)}&versionDescriptor.version=${commitId}&versionDescriptor.versionType=commit&$format=text&api-version=7.1`;
+    // Encode each path segment individually so slashes remain literal in the query
+    // parameter value. Using encodeURIComponent on the whole path encodes slashes
+    // as %2F, which some Azure DevOps configurations do not handle correctly.
+    const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/items?path=${encodedPath}&versionDescriptor.version=${commitId}&versionDescriptor.versionType=commit&$format=text&api-version=7.1`;
     return await httpsGet(url, authHeaders(token));
 }
 

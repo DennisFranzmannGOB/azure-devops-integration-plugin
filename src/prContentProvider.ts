@@ -36,7 +36,10 @@ export function buildPrFileUri(
     org: string, project: string, repoId: string, commitId: string, filePath: string,
     prId?: number, side?: 'left' | 'right'
 ): vscode.Uri {
-    const base = `azuredevops-pr://${encodeURIComponent(org)}/${encodeURIComponent(project)}/${repoId}/${commitId}${filePath}`;
+    // Encode each path segment so spaces and special characters in directory/file
+    // names produce a valid URI. Slashes are preserved as separators.
+    const encodedFilePath = filePath.split('/').map(encodeURIComponent).join('/');
+    const base = `azuredevops-pr://${encodeURIComponent(org)}/${encodeURIComponent(project)}/${repoId}/${commitId}${encodedFilePath}`;
     const params = new URLSearchParams();
     if (prId !== undefined) { params.set('prId', String(prId)); }
     if (side) { params.set('side', side); }

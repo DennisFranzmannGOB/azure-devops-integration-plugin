@@ -171,7 +171,8 @@ export function registerPrActions(
 
 export function registerEditorVoteCommands(
     context: vscode.ExtensionContext,
-    provider: PullRequestTreeProvider
+    provider: PullRequestTreeProvider,
+    getReviewModeFileInfo?: (uri: vscode.Uri) => { org: string; prId: number } | undefined
 ) {
     const editorVoteCommands: Array<{ command: string; vote: number; label: string }> = [
         { command: 'azureDevops.editorApprovePr', vote: 10, label: 'Approved' },
@@ -187,12 +188,18 @@ export function registerEditorVoteCommands(
                 if (!editor) { return; }
 
                 const parsed = parsePrFileUri(editor.document.uri);
-                if (!parsed?.prId) {
+                const rmInfo = !parsed?.prId && getReviewModeFileInfo
+                    ? getReviewModeFileInfo(editor.document.uri)
+                    : undefined;
+                const org = parsed?.org ?? rmInfo?.org;
+                const prId = parsed?.prId ?? rmInfo?.prId;
+
+                if (!org || !prId) {
                     vscode.window.showErrorMessage('No pull request found. Open a PR diff file to use this command.');
                     return;
                 }
 
-                const pr = provider.getPullRequestById(parsed.prId);
+                const pr = provider.getPullRequestById(prId);
                 if (!pr) {
                     vscode.window.showErrorMessage('Pull request data not available. Try refreshing the PR list.');
                     return;
@@ -213,7 +220,7 @@ export function registerEditorVoteCommands(
                 const repoId = pr.repository?.id ?? '';
 
                 try {
-                    await updateReviewerVote(parsed.org, project, repoId, pr.pullRequestId, userId, vote, token);
+                    await updateReviewerVote(org, project, repoId, pr.pullRequestId, userId, vote, token);
                     vscode.window.showInformationMessage(`PR #${pr.pullRequestId}: ${label}`);
                     provider.refresh();
                 } catch (e: any) {

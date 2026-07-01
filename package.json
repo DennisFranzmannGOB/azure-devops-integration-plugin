@@ -2,7 +2,7 @@
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
   "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
-  "version": "1.0.1",
+  "version": "1.0.5",
   "publisher": "lucacelea",
   "license": "MIT",
   "icon": "icon.png",
@@ -301,6 +301,11 @@
       "comments/commentThread/title": [
         {
           "command": "azureDevops.inlineResolveThread",
+          "group": "inline",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlinePendingThread",
           "group": "1_status@1",
           "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
         },
@@ -320,13 +325,8 @@
           "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
         },
         {
-          "command": "azureDevops.inlinePendingThread",
-          "group": "1_status@5",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
-        },
-        {
           "command": "azureDevops.inlineReactivateThread",
-          "group": "1_status@1",
+          "group": "inline",
           "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(?!active)./"
         }
       ],
@@ -509,22 +509,22 @@
           "group": "1_status@1"
         },
         {
-          "command": "azureDevops.wontFixThread",
+          "command": "azureDevops.pendingThread",
           "when": "viewItem == discussionThread.active",
           "group": "1_status@2"
         },
         {
-          "command": "azureDevops.byDesignThread",
+          "command": "azureDevops.wontFixThread",
           "when": "viewItem == discussionThread.active",
           "group": "1_status@3"
         },
         {
-          "command": "azureDevops.closeThread",
+          "command": "azureDevops.byDesignThread",
           "when": "viewItem == discussionThread.active",
           "group": "1_status@4"
         },
         {
-          "command": "azureDevops.pendingThread",
+          "command": "azureDevops.closeThread",
           "when": "viewItem == discussionThread.active",
           "group": "1_status@5"
         },

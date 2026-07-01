@@ -11,6 +11,14 @@ interface ThreadMeta {
     threadId: number;
 }
 
+interface ReviewModeFileContext {
+    org: string;
+    project: string;
+    repoId: string;
+    prId: number;
+    filePath: string;
+}
+
 export class PrCommentController implements vscode.Disposable {
     private readonly controller: vscode.CommentController;
     private readonly secretStorage: vscode.SecretStorage;
@@ -20,6 +28,7 @@ export class PrCommentController implements vscode.Disposable {
     private readonly placedThreadIds = new Set<string>();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly threadMeta = new WeakMap<vscode.CommentThread, ThreadMeta>();
+    private readonly reviewModeFiles = new Map<string, ReviewModeFileContext>();
 
     private readonly _onDidAddComment = new vscode.EventEmitter<void>();
     readonly onDidAddComment = this._onDidAddComment.event;
@@ -33,16 +42,43 @@ export class PrCommentController implements vscode.Disposable {
         this.controller.commentingRangeProvider = {
             provideCommentingRanges: (document: vscode.TextDocument) => {
                 const ctx = parsePrFileUri(document.uri);
-                if (!ctx?.prId || ctx.side === 'left') {
-                    return [];
+                if (ctx?.prId && ctx.side !== 'left') {
+                    return [new vscode.Range(0, 0, document.lineCount - 1, 0)];
                 }
-                return [new vscode.Range(0, 0, document.lineCount - 1, 0)];
+                // Also allow commenting on real (review-mode) files
+                if (this.reviewModeFiles.has(document.uri.toString())) {
+                    return [new vscode.Range(0, 0, document.lineCount - 1, 0)];
+                }
+                return [];
             },
         };
 
         this.disposables.push(
             vscode.workspace.onDidOpenTextDocument((doc) => this.onDocumentOpen(doc))
         );
+    }
+
+    /** Register a real (file://) document as the modified side of a PR diff, enabling
+     *  comment creation and placement when the PR branch is checked out locally. */
+    async registerReviewModeFile(
+        fileUri: vscode.Uri,
+        org: string, project: string, repoId: string, prId: number, filePath: string
+    ): Promise<void> {
+        this.reviewModeFiles.set(fileUri.toString(), { org, project, repoId, prId, filePath });
+
+        // Re-assign commentingRangeProvider so VS Code re-queries provideCommentingRanges
+        // for all currently open documents. Without this, the comment gutter "+" button
+        // won't appear when the diff was already open before this registration ran.
+        this.controller.commentingRangeProvider = this.controller.commentingRangeProvider;
+
+        const cacheKey = `${org}/${project}/${repoId}/${prId}`;
+        if (this.apiData.has(cacheKey)) {
+            // Threads already loaded — re-run placement for any unplaced threads
+            this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
+        } else {
+            // loadThreads fetches data and calls placeThreadsForOpenDocs internally
+            await this.loadThreads(org, project, repoId, prId);
+        }
     }
 
     /** Call after construction to load comments for already-open documents. */
@@ -137,9 +173,18 @@ export class PrCommentController implements vscode.Disposable {
 
         const matchingDoc = vscode.workspace.textDocuments.find((doc) => {
             const parsed = parsePrFileUri(doc.uri);
-            return parsed?.org === org && parsed.repoId === repoId
-                && parsed.prId === prId && parsed.filePath === filePath
-                && parsed.side === side;
+            if (parsed) {
+                return parsed.org === org && parsed.repoId === repoId
+                    && parsed.prId === prId && parsed.filePath === filePath
+                    && parsed.side === side;
+            }
+            // Also match review-mode real files (right side only)
+            if (side === 'right') {
+                const rm = this.reviewModeFiles.get(doc.uri.toString());
+                return rm?.org === org && rm.repoId === repoId
+                    && rm.prId === prId && rm.filePath === filePath;
+            }
+            return false;
         });
         if (!matchingDoc) { return undefined; }
 
@@ -171,7 +216,15 @@ export class PrCommentController implements vscode.Disposable {
     async createThread(reply: vscode.CommentReply): Promise<void> {
         const uri = reply.thread.uri;
         const ctx = parsePrFileUri(uri);
-        if (!ctx?.prId) { return; }
+        const rmCtx = !ctx?.prId ? this.reviewModeFiles.get(uri.toString()) : undefined;
+        if (!ctx?.prId && !rmCtx) { return; }
+
+        const org = ctx?.org ?? rmCtx!.org;
+        const project = ctx?.project ?? rmCtx!.project;
+        const repoId = ctx?.repoId ?? rmCtx!.repoId;
+        const prId = ctx?.prId ?? rmCtx!.prId;
+        const filePath = ctx?.filePath ?? rmCtx!.filePath;
+        const isRight = rmCtx !== undefined ? true : ctx!.side !== 'left';
 
         const token = await getToken(this.secretStorage);
         if (!token) {
@@ -182,16 +235,15 @@ export class PrCommentController implements vscode.Disposable {
         const range = reply.thread.range;
         const startLine = (range?.start.line ?? 0) + 1;
         const endLine = (range?.end.line ?? range?.start.line ?? 0) + 1;
-        const isRight = ctx.side !== 'left';
         const startPosition = { line: startLine, offset: 1 };
         const endPosition = { line: endLine, offset: 1 };
 
         try {
             const result = await addPullRequestFileComment(
-                ctx.org, ctx.project, ctx.repoId, ctx.prId,
+                org, project, repoId, prId,
                 reply.text,
                 {
-                    filePath: ctx.filePath,
+                    filePath,
                     ...(isRight
                         ? { rightFileStart: startPosition, rightFileEnd: endPosition }
                         : { leftFileStart: startPosition, leftFileEnd: endPosition }),
@@ -210,14 +262,11 @@ export class PrCommentController implements vscode.Disposable {
             ];
             reply.thread.canReply = true;
             reply.thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
-
-            this.threadMeta.set(reply.thread, {
-                org: ctx.org, project: ctx.project, repoId: ctx.repoId,
-                prId: ctx.prId, threadId: result.id,
-            });
             reply.thread.contextValue = 'prCommentThread.active';
 
-            const cacheKey = `${ctx.org}/${ctx.project}/${ctx.repoId}/${ctx.prId}`;
+            this.threadMeta.set(reply.thread, { org, project, repoId, prId, threadId: result.id });
+
+            const cacheKey = `${org}/${project}/${repoId}/${prId}`;
             const existing = this.vsThreads.get(cacheKey) ?? [];
             existing.push(reply.thread);
             this.vsThreads.set(cacheKey, existing);
@@ -278,10 +327,29 @@ export class PrCommentController implements vscode.Disposable {
         }
     }
 
-    refreshAll(): void {
-        // Clear everything and re-load for currently open documents
+    isReviewModeFile(uri: vscode.Uri): boolean {
+        return this.reviewModeFiles.has(uri.toString());
+    }
+
+    getReviewModeFileInfo(uri: vscode.Uri): { org: string; prId: number } | undefined {
+        const ctx = this.reviewModeFiles.get(uri.toString());
+        return ctx ? { org: ctx.org, prId: ctx.prId } : undefined;
+    }
+
+    async refreshAll(): Promise<void> {
+        // Preserve review-mode registrations: clearAll drops them, but they belong
+        // to diff editors that are still open and need comments/gutter to keep working.
+        const savedReviewModeFiles = new Map(this.reviewModeFiles);
         this.clearAll();
         this.loadExisting();
+        for (const [uriString, ctx] of savedReviewModeFiles) {
+            const stillOpen = vscode.workspace.textDocuments.some(d => d.uri.toString() === uriString);
+            if (stillOpen) {
+                await this.registerReviewModeFile(
+                    vscode.Uri.parse(uriString), ctx.org, ctx.project, ctx.repoId, ctx.prId, ctx.filePath
+                );
+            }
+        }
     }
 
     clearAll(): void {
@@ -291,6 +359,7 @@ export class PrCommentController implements vscode.Disposable {
         this.vsThreads.clear();
         this.apiData.clear();
         this.placedThreadIds.clear();
+        this.reviewModeFiles.clear();
     }
 
     dispose(): void {

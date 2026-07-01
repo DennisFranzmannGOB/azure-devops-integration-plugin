@@ -62,8 +62,8 @@ export class TreeItem {
     }
 }
 export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
-export class ThemeIcon { constructor(public id: string, public color?: any) {} }
-export class ThemeColor { constructor(public id: string) {} }
+export class ThemeIcon { constructor(public id: string, public color?: any) { } }
+export class ThemeColor { constructor(public id: string) { } }
 export class MarkdownString {
     value: string;
     constructor(value?: string) { this.value = value ?? ''; }
@@ -81,19 +81,19 @@ export class Range {
         this.end = { line: endLine, character: endCharacter };
     }
 }
-export class Selection extends Range {}
+export class Selection extends Range { }
 export enum TextEditorRevealType { InCenter = 0 }
-export class EventEmitter { fire() {} event = () => {}; }
+export class EventEmitter { fire() { } event = () => { }; }
 export class TabInputText {
-    constructor(public uri: { fsPath: string }) {}
+    constructor(public uri: { fsPath: string }) { }
 }
 export enum ProgressLocation { Notification = 15 }
 export class Disposable {
-    constructor(private callOnDispose: () => void) {}
+    constructor(private callOnDispose: () => void) { }
     dispose() { this.callOnDispose(); }
 }
 export class RelativePattern {
-    constructor(public base: string, public pattern: string) {}
+    constructor(public base: string, public pattern: string) { }
 }
 export const window = {
     showErrorMessage: jest.fn(),
@@ -163,7 +163,7 @@ export enum CommentThreadCollapsibleState { Collapsed = 0, Expanded = 1 }
 export enum CommentMode { Preview = 0, Editing = 1 }
 export const comments = {
     createCommentController: jest.fn().mockImplementation(() => ({
-        set commentingRangeProvider(_: unknown) {},
+        set commentingRangeProvider(_: unknown) { },
         createCommentThread: jest.fn().mockImplementation((_uri: unknown, _range: unknown, c: unknown) => ({
             uri: _uri,
             range: _range,

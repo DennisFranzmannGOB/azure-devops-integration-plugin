@@ -224,18 +224,29 @@ export function activate(context: vscode.ExtensionContext) {
                 const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath}`);
             }
+
+            // When using a real file for the modified side (review mode), register it with the
+            // comment controller so comment creation and placement work on the real document.
+            if (reviewModeUri && change.changeType !== 'delete') {
+                await prCommentController.registerReviewModeFile(
+                    reviewModeUri, fileItem.org, fileItem.project, fileItem.repoId,
+                    fileItem.prId, filePath,
+                );
+            }
         }),
     );
 
     // Register editor-title vote commands (approve/reject/wait from diff view)
-    registerEditorVoteCommands(context, prProvider);
+    registerEditorVoteCommands(context, prProvider, (uri) => prCommentController.getReviewModeFileInfo(uri));
 
     // Track when a PR diff editor is active to show editor/title vote buttons.
     // The 'empty' authority is used for placeholder (empty-file) side of diffs and should be excluded.
     function updatePrDiffContext() {
-        const editor = vscode.window.activeTextEditor;
-        const isPrDiff = editor?.document.uri.scheme === 'azuredevops-pr'
-            && editor.document.uri.authority !== 'empty';
+        const uri = vscode.window.activeTextEditor?.document.uri;
+        const isPrDiff = uri && (
+            (uri.scheme === 'azuredevops-pr' && uri.authority !== 'empty') ||
+            prCommentController.isReviewModeFile(uri)
+        );
         vscode.commands.executeCommand('setContext', 'azureDevops.prDiffActive', !!isPrDiff);
     }
     updatePrDiffContext();
