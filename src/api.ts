@@ -948,7 +948,13 @@ export async function getPrWorkItems(
 
 export async function getPrIterations(
     org: string, project: string, repoId: string, prId: number, token: string
-): Promise<Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>> {
+): Promise<Array<{
+    id: number;
+    sourceRefCommit: { commitId: string };
+    targetRefCommit: { commitId: string };
+    createdDate?: string;
+    author?: { displayName: string };
+}>> {
     const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/iterations?api-version=7.1`;
     const body = await httpsGet(url, authHeaders(token));
     const data = JSON.parse(body);

@@ -277,6 +277,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private _onDidChangeTreeData = new vscode.EventEmitter<PrChangesTreeItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+    private _onIterationResolved = new vscode.EventEmitter<number | undefined>();
+    readonly onIterationResolved = this._onIterationResolved.event;
+
     private selectedPr?: EnrichedPullRequest;
     private selectedOrg?: string;
     private currentIterationId?: number;
@@ -320,6 +323,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedOrg = undefined;
         this.currentIterationId = undefined;
         clearCommentContent();
+        this._onIterationResolved.fire(undefined);
         this._onDidChangeTreeData.fire();
     }
 
@@ -393,6 +397,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             // that changed between the previous and current iteration and remove marks
             // for those — unchanged files keep their marks (matches ADO web portal behaviour).
             this.currentIterationId = lastIteration.id;
+            this._onIterationResolved.fire(lastIteration.id);
             if (this.reviewedStore) {
                 const storedIterationId = this.reviewedStore.getStoredIterationId(pr.pullRequestId);
                 const isNewIteration = storedIterationId !== undefined && storedIterationId !== lastIteration.id;

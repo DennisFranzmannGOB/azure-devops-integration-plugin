@@ -24,6 +24,7 @@ import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider'
 import { buildPullRequestThreadUrl } from './prLinks';
 import { tryGetReviewModeUri } from './reviewMode';
 import { ReviewedFilesStore } from './reviewedFiles';
+import { PrUpdatesProvider, PrIterationFileItem } from './prUpdatesProvider';
 
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
@@ -148,11 +149,27 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(prChangesTree);
 
+    prChangesProvider.onIterationResolved(iterationId => {
+        const prId = prChangesProvider.getSelectedPrContext()?.prId;
+        if (prId) {
+            prChangesTree.title = iterationId
+                ? `Changes: #${prId} (Iteration ${iterationId})`
+                : `Changes: #${prId}`;
+        }
+    });
+
+    const prUpdatesProvider = new PrUpdatesProvider(secretStorage);
+    const prUpdatesTree = vscode.window.createTreeView('azureDevops.prUpdates', {
+        treeDataProvider: prUpdatesProvider,
+    });
+    context.subscriptions.push(prUpdatesTree);
+
     const switchToPr = (pr: Parameters<PrChangesProvider['selectPr']>[0], org: string): void => {
         const switchedPr = prChangesProvider.selectPr(pr, org);
         if (switchedPr) {
             prCommentController.clearAll();
         }
+        prUpdatesProvider.selectPr(pr, org);
         prChangesTree.title = `Changes: #${pr.pullRequestId}`;
     };
 
@@ -185,6 +202,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!currentSelection || !sameSelectedPrContext(currentSelection, nextSelection)) {
                 prChangesProvider.clear();
                 prCommentController.clearAll();
+                prUpdatesProvider.clear();
                 prChangesTree.title = 'PR Changes';
             }
         }),
@@ -196,7 +214,29 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.clearPrChanges', () => {
             prChangesProvider.clear();
             prCommentController.clearAll();
+            prUpdatesProvider.clear();
             prChangesTree.title = 'PR Changes';
+        }),
+        vscode.commands.registerCommand('azureDevops.refreshPrUpdates', () => {
+            prUpdatesProvider.refresh();
+        }),
+        vscode.commands.registerCommand('azureDevops.openPrIterationDiff', async (fileItem: PrIterationFileItem) => {
+            const change = fileItem.change;
+            const filePath = change.item.path;
+            if (change.changeType === 'add') {
+                const rightUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.rightCommitId, filePath);
+                const leftUri = vscode.Uri.parse('azuredevops-pr://empty');
+                await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (added)`);
+            } else if (change.changeType === 'delete') {
+                const leftUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.leftCommitId, filePath);
+                const rightUri = vscode.Uri.parse('azuredevops-pr://empty');
+                await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (deleted)`);
+            } else {
+                const originalPath = change.originalPath ?? filePath;
+                const leftUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.leftCommitId, originalPath);
+                const rightUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.rightCommitId, filePath);
+                await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath}`);
+            }
         }),
         vscode.commands.registerCommand('azureDevops.refreshPrChanges', () => {
             prChangesProvider.refresh();
