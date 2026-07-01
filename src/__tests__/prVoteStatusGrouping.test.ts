@@ -32,6 +32,11 @@ function makePr(overrides: Partial<EnrichedPullRequest> = {}): EnrichedPullReque
 describe('getMyVoteStatus', () => {
     const userId = 'user1';
 
+    it('returns declined when hasDeclined is true (regardless of vote)', () => {
+        const pr = makePr({ reviewers: [{ displayName: 'User', id: userId, vote: 0, hasDeclined: true }] });
+        expect(getMyVoteStatus(pr, userId)).toBe('declined');
+    });
+
     it('returns needs-review when user is not a reviewer', () => {
         const pr = makePr({ reviewers: [] });
         expect(getMyVoteStatus(pr, userId)).toBe('needs-review');
@@ -156,6 +161,14 @@ describe('fromCategory — reviewer vote-status sub-groups', () => {
         });
         return PullRequestItem.fromPullRequest(pr, 'org');
     }
+
+    it('places hasDeclined PRs in the Declined group', () => {
+        const pr = makePr({ pullRequestId: 10, reviewers: [{ displayName: 'User', id: userId, vote: 0, hasDeclined: true }] });
+        const item = PullRequestItem.fromPullRequest(pr, 'org');
+        const category = PullRequestItem.fromCategory('Assigned to me', [item], userId, false);
+        expect(category.children).toHaveLength(1);
+        expect(category.children![0].label).toBe('Declined (1)');
+    });
 
     it('creates a sub-group for each non-empty vote status', () => {
         const items = [

@@ -8,7 +8,7 @@ export interface PullRequest {
     sourceRefName: string;
     creationDate?: string;
     createdBy: { displayName: string; id: string };
-    reviewers: Array<{ displayName: string; vote: number; id: string }>;
+    reviewers: Array<{ displayName: string; vote: number; id: string; hasDeclined?: boolean }>;
     repository: { id: string; name: string; project: { id: string; name: string } };
     status: string;
     isDraft: boolean;

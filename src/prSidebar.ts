@@ -33,7 +33,8 @@ export type ReviewerVoteStatus =
     | 'needs-review'
     | 'waiting-for-author'
     | 'approved-suggestions'
-    | 'approved';
+    | 'approved'
+    | 'declined';
 
 export type CreatorPrStatus =
     | 'rejected'
@@ -44,6 +45,7 @@ export type CreatorPrStatus =
 export function getMyVoteStatus(pr: EnrichedPullRequest, userId: string): ReviewerVoteStatus {
     const myReview = pr.reviewers?.find((r) => r.id === userId);
     if (!myReview) { return 'needs-review'; }
+    if (myReview.hasDeclined) { return 'declined'; }
     if (myReview.vote === -10) { return 'rejected'; }
     if (myReview.vote === -5) { return 'waiting-for-author'; }
     if (myReview.vote === 5) { return 'approved-suggestions'; }
@@ -185,6 +187,7 @@ export class PullRequestItem extends vscode.TreeItem {
             { key: 'waiting-for-author', label: 'Waiting for Author', iconId: 'watch', color: new vscode.ThemeColor('warningForeground') },
             { key: 'approved-suggestions', label: 'Approved with Suggestions', iconId: 'pass', color: new vscode.ThemeColor('testing.iconPassed') },
             { key: 'approved', label: 'Approved', iconId: 'check', color: new vscode.ThemeColor('testing.iconPassed') },
+            { key: 'declined', label: 'Declined', iconId: 'circle-slash', color: new vscode.ThemeColor('disabledForeground') },
         ];
 
         const creatorGroups: GroupDef[] = [
