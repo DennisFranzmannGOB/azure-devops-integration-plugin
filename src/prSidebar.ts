@@ -473,12 +473,21 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
 
     setFilter(filter: PrFilter): void {
         this.currentFilter = filter;
+        vscode.commands.executeCommand('setContext', 'azureDevops.filterActive', filter !== 'all');
         this._onDidChangeTreeData.fire();
     }
 
     setSort(sort: PrSort): void {
         this.currentSort = sort;
         this._onDidChangeTreeData.fire();
+    }
+
+    getFilter(): PrFilter {
+        return this.currentFilter;
+    }
+
+    getSort(): PrSort {
+        return this.currentSort;
     }
 
     setCommentNotificationHandlers(handlers: CommentNotificationHandlers): void {

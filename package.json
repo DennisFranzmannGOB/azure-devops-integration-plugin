@@ -164,6 +164,11 @@
         "icon": "$(filter)"
       },
       {
+        "command": "azureDevops.filterPullRequestsActive",
+        "title": "Azure DevOps: Filter Pull Requests",
+        "icon": "$(filter-filled)"
+      },
+      {
         "command": "azureDevops.sortPullRequests",
         "title": "Azure DevOps: Sort Pull Requests",
         "icon": "$(arrow-swap)"
@@ -176,6 +181,11 @@
       {
         "command": "azureDevops.openDiscussionComment",
         "title": "Open Comment"
+      },
+      {
+        "command": "azureDevops.openThreadInBrowser",
+        "title": "Open in Browser",
+        "icon": "$(link-external)"
       },
       {
         "command": "azureDevops.refreshPrChanges",
@@ -367,6 +377,10 @@
           "when": "false"
         },
         {
+          "command": "azureDevops.openThreadInBrowser",
+          "when": "false"
+        },
+        {
           "command": "azureDevops.editPrTitle",
           "when": "false"
         },
@@ -440,7 +454,12 @@
         },
         {
           "command": "azureDevops.filterPullRequests",
-          "when": "view == azureDevops.pullRequests",
+          "when": "view == azureDevops.pullRequests && !azureDevops.filterActive",
+          "group": "navigation"
+        },
+        {
+          "command": "azureDevops.filterPullRequestsActive",
+          "when": "view == azureDevops.pullRequests && azureDevops.filterActive",
           "group": "navigation"
         },
         {
@@ -538,6 +557,11 @@
         {
           "command": "azureDevops.replyToDiscussionThread",
           "when": "viewItem =~ /^discussionThread\\./",
+          "group": "inline"
+        },
+        {
+          "command": "azureDevops.openThreadInBrowser",
+          "when": "viewItem =~ /^discussionThread\\./ && view == azureDevops.prChanges",
           "group": "inline"
         },
         {
