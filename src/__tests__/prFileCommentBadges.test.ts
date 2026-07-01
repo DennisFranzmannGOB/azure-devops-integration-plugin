@@ -23,7 +23,8 @@ describe('PrFileItem layout', () => {
         );
 
         expect(item.label).toBe('app.ts');
-        expect(item.description).toBe('/src/components');
+        // Description removed: folder hierarchy shown by PrFolderItem parent nodes instead
+        expect(item.description).toBeUndefined();
     });
 
     it('shows root as description for top-level files', () => {
@@ -33,7 +34,7 @@ describe('PrFileItem layout', () => {
             baseArgs.sourceCommitId, baseArgs.targetCommitId, baseArgs.prId,
         );
 
-        expect(item.description).toBe('/');
+        expect(item.description).toBeUndefined();
     });
 
     it('shows only change type in tooltip', () => {

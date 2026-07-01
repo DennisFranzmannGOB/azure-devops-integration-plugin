@@ -14,6 +14,7 @@ import { PrContentProvider, buildPrFileUri } from './prContentProvider';
 import { PrCommentController } from './prComments';
 import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider';
 import { buildPullRequestThreadUrl } from './prLinks';
+import { tryGetReviewModeUri } from './reviewMode';
 
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
@@ -171,8 +172,32 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.byDesignThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.changeThreadStatus(item, 'byDesign').then(() => prCommentController.refreshAll());
         }),
+        vscode.commands.registerCommand('azureDevops.closeThread', (item: PrCommentThreadItem) => {
+            return prChangesProvider.changeThreadStatus(item, 'closed').then(() => prCommentController.refreshAll());
+        }),
+        vscode.commands.registerCommand('azureDevops.pendingThread', (item: PrCommentThreadItem) => {
+            return prChangesProvider.changeThreadStatus(item, 'pending').then(() => prCommentController.refreshAll());
+        }),
         vscode.commands.registerCommand('azureDevops.reactivateThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.changeThreadStatus(item, 'active').then(() => prCommentController.refreshAll());
+        }),
+        vscode.commands.registerCommand('azureDevops.inlineResolveThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'fixed');
+        }),
+        vscode.commands.registerCommand('azureDevops.inlineWontFixThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'wontFix');
+        }),
+        vscode.commands.registerCommand('azureDevops.inlineByDesignThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'byDesign');
+        }),
+        vscode.commands.registerCommand('azureDevops.inlineCloseThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'closed');
+        }),
+        vscode.commands.registerCommand('azureDevops.inlinePendingThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'pending');
+        }),
+        vscode.commands.registerCommand('azureDevops.inlineReactivateThread', (thread: vscode.CommentThread) => {
+            return prCommentController.changeStatus(thread, 'active');
         }),
         vscode.commands.registerCommand('azureDevops.addGeneralComment', () => {
             return prChangesProvider.addGeneralComment();
@@ -181,8 +206,12 @@ export function activate(context: vscode.ExtensionContext) {
             const change = fileItem.change;
             const filePath = change.item.path;
 
+            // If the PR source branch is currently checked out, use the real on-disk file
+            // for the modified side so language features (Go to Definition, etc.) work natively.
+            const reviewModeUri = await tryGetReviewModeUri(fileItem.sourceBranch, filePath);
+
             if (change.changeType === 'add') {
-                const rightUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
+                const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
                 const leftUri = vscode.Uri.parse('azuredevops-pr://empty');
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (added)`);
             } else if (change.changeType === 'delete') {
@@ -192,7 +221,7 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
                 const originalPath = change.originalPath ?? filePath;
                 const leftUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.targetCommitId, originalPath, fileItem.prId, 'left');
-                const rightUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
+                const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath}`);
             }
         }),
@@ -217,4 +246,4 @@ export function activate(context: vscode.ExtensionContext) {
     createStatusBarItem(context);
 }
 
-export function deactivate() {}
+export function deactivate() { }

@@ -6,7 +6,7 @@ import { setCommentContent, buildCommentDocUri, clearCommentContent } from './pr
 
 // --- Tree item types ---
 
-export type PrChangesTreeItem = PrFileItem | PrCommentThreadItem | PrCommentReplyItem | PrGeneralCommentsItem;
+export type PrChangesTreeItem = PrFileItem | PrFolderItem | PrCommentThreadItem | PrCommentReplyItem | PrGeneralCommentsItem;
 
 export class PrFileItem extends vscode.TreeItem {
     public children?: PrCommentThreadItem[];
@@ -19,12 +19,11 @@ export class PrFileItem extends vscode.TreeItem {
         public readonly sourceCommitId: string,
         public readonly targetCommitId: string,
         public readonly prId: number,
+        public readonly sourceBranch: string = '',
     ) {
         const fileName = change.item.path.split('/').pop() ?? change.item.path;
         super(fileName, vscode.TreeItemCollapsibleState.None);
 
-        const dir = change.item.path.substring(0, change.item.path.lastIndexOf('/')) || '/';
-        this.description = dir;
         this.tooltip = `${change.changeType}: ${change.item.path}`;
         this.contextValue = 'prFile';
 
@@ -116,7 +115,7 @@ export class PrCommentThreadItem extends vscode.TreeItem {
             }
         }
 
-        this.contextValue = thread.status === 'active' ? 'discussionThread.active' : 'discussionThread.resolved';
+        this.contextValue = `discussionThread.${thread.status ?? 'unknown'}`;
 
         if (isGeneral || (filePath && sourceCommitId && targetCommitId)) {
             this.command = {
@@ -158,6 +157,70 @@ export class PrGeneralCommentsItem extends vscode.TreeItem {
     }
 }
 
+export class PrFolderItem extends vscode.TreeItem {
+    constructor(
+        label: string,
+        public readonly children: (PrFolderItem | PrFileItem)[],
+    ) {
+        super(label, vscode.TreeItemCollapsibleState.Expanded);
+        this.iconPath = new vscode.ThemeIcon('folder');
+        this.contextValue = 'prFolder';
+    }
+}
+
+// --- Folder-tree helpers ---
+
+interface FolderNode {
+    folders: Map<string, FolderNode>;
+    files: PrFileItem[];
+}
+
+function buildFolderTree(fileItems: PrFileItem[]): (PrFolderItem | PrFileItem)[] {
+    const root: FolderNode = { folders: new Map(), files: [] };
+    for (const item of fileItems) {
+        const parts = item.change.item.path.split('/').filter(p => p.length > 0);
+        const dirParts = parts.slice(0, -1);
+        let node = root;
+        for (const part of dirParts) {
+            if (!node.folders.has(part)) {
+                node.folders.set(part, { folders: new Map(), files: [] });
+            }
+            node = node.folders.get(part)!;
+        }
+        node.files.push(item);
+    }
+    return folderNodeToChildren(root);
+}
+
+function folderNodeToChildren(node: FolderNode): (PrFolderItem | PrFileItem)[] {
+    const items: (PrFolderItem | PrFileItem)[] = [];
+    for (const [name, child] of node.folders) {
+        items.push(compactFolderNode(name, child));
+    }
+    items.push(...node.files);
+    items.sort((a, b) => {
+        const aIsFolder = a instanceof PrFolderItem;
+        const bIsFolder = b instanceof PrFolderItem;
+        if (aIsFolder !== bIsFolder) { return aIsFolder ? -1 : 1; }
+        const aLabel = typeof a.label === 'string' ? a.label : (a.label as vscode.TreeItemLabel)?.label ?? '';
+        const bLabel = typeof b.label === 'string' ? b.label : (b.label as vscode.TreeItemLabel)?.label ?? '';
+        return aLabel.localeCompare(bLabel);
+    });
+    return items;
+}
+
+function compactFolderNode(name: string, node: FolderNode): PrFolderItem {
+    let displayName = name;
+    let current = node;
+    // Compact single-child-folder chains (no files, one sub-folder) like VS Code compact folders
+    while (current.files.length === 0 && current.folders.size === 1) {
+        const [childName, child] = [...current.folders.entries()][0];
+        displayName += '/' + childName;
+        current = child;
+    }
+    return new PrFolderItem(displayName, folderNodeToChildren(current));
+}
+
 // --- Provider ---
 
 export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeItem> {
@@ -194,6 +257,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     }
 
     getChildren(element?: PrChangesTreeItem): Promise<PrChangesTreeItem[]> | PrChangesTreeItem[] {
+        if (element instanceof PrFolderItem) {
+            return element.children;
+        }
         if (element instanceof PrFileItem) {
             return element.children ?? [];
         }
@@ -255,12 +321,14 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                 }
             }
 
+            const sourceBranch = pr.sourceRefName?.replace(/^refs\/heads\//, '') ?? '';
+
             // Build file items with thread children
             const fileItems = changes
                 .filter(c => c.item?.path)
                 .map(c => {
                     const item = new PrFileItem(
-                        c, org, project, repoId, sourceCommitId, targetCommitId, pr.pullRequestId,
+                        c, org, project, repoId, sourceCommitId, targetCommitId, pr.pullRequestId, sourceBranch,
                     );
                     const threads = fileThreads.get(c.item.path);
                     if (threads && threads.length > 0) {
@@ -283,7 +351,8 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                 rootItems.push(new PrGeneralCommentsItem(generalChildren));
             }
 
-            rootItems.push(...fileItems);
+            // Nest files in a folder tree
+            rootItems.push(...buildFolderTree(fileItems));
 
             return rootItems;
         } catch (e: any) {

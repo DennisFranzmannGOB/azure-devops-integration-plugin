@@ -101,28 +101,28 @@ describe('PrCommentThreadItem', () => {
         expect(item.contextValue).toBe('discussionThread.active');
     });
 
-    it('sets contextValue to discussionThread.resolved for fixed threads', () => {
+    it('sets contextValue to discussionThread.fixed for fixed threads', () => {
         const thread = makeThread({ status: 'fixed' });
         const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
-        expect(item.contextValue).toBe('discussionThread.resolved');
+        expect(item.contextValue).toBe('discussionThread.fixed');
     });
 
-    it('sets contextValue to discussionThread.resolved for wontFix threads', () => {
+    it('sets contextValue to discussionThread.wontFix for wontFix threads', () => {
         const thread = makeThread({ status: 'wontFix' });
         const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
-        expect(item.contextValue).toBe('discussionThread.resolved');
+        expect(item.contextValue).toBe('discussionThread.wontFix');
     });
 
-    it('sets contextValue to discussionThread.resolved for byDesign threads', () => {
+    it('sets contextValue to discussionThread.byDesign for byDesign threads', () => {
         const thread = makeThread({ status: 'byDesign' });
         const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
-        expect(item.contextValue).toBe('discussionThread.resolved');
+        expect(item.contextValue).toBe('discussionThread.byDesign');
     });
 
-    it('sets contextValue to discussionThread.resolved for closed threads', () => {
+    it('sets contextValue to discussionThread.closed for closed threads', () => {
         const thread = makeThread({ status: 'closed' });
         const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
-        expect(item.contextValue).toBe('discussionThread.resolved');
+        expect(item.contextValue).toBe('discussionThread.closed');
     });
 
     it('uses check icon for resolved threads', () => {

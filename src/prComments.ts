@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PrThread, getPrThreads, addPullRequestFileComment, replyToThread } from './api';
+import { PrThread, getPrThreads, addPullRequestFileComment, replyToThread, updateThreadStatus, ThreadStatus } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 
@@ -163,6 +163,7 @@ export class PrCommentController implements vscode.Disposable {
         vsThread.canReply = true;
         vsThread.label = thread.status === 'active' ? 'Active' : thread.status;
         vsThread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+        vsThread.contextValue = `prCommentThread.${thread.status ?? 'unknown'}`;
         this.threadMeta.set(vsThread, meta);
         return vsThread;
     }
@@ -214,6 +215,7 @@ export class PrCommentController implements vscode.Disposable {
                 org: ctx.org, project: ctx.project, repoId: ctx.repoId,
                 prId: ctx.prId, threadId: result.id,
             });
+            reply.thread.contextValue = 'prCommentThread.active';
 
             const cacheKey = `${ctx.org}/${ctx.project}/${ctx.repoId}/${ctx.prId}`;
             const existing = this.vsThreads.get(cacheKey) ?? [];
@@ -258,6 +260,21 @@ export class PrCommentController implements vscode.Disposable {
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to reply: ${msg}`);
+        }
+    }
+
+    async changeStatus(vsThread: vscode.CommentThread, status: ThreadStatus): Promise<void> {
+        const meta = this.threadMeta.get(vsThread);
+        if (!meta) { return; }
+        const token = await getToken(this.secretStorage);
+        if (!token) { return; }
+        try {
+            await updateThreadStatus(meta.org, meta.project, meta.repoId, meta.prId, meta.threadId, status, token);
+            vsThread.label = status === 'active' ? 'Active' : status;
+            vsThread.contextValue = `prCommentThread.${status}`;
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to update thread status: ${msg}`);
         }
     }
 

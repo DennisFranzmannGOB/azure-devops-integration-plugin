@@ -124,7 +124,9 @@ export const ConfigurationTarget = {
 };
 export const workspace = {
     workspaceFolders: undefined as any,
+    textDocuments: [] as any[],
     openTextDocument: jest.fn(),
+    onDidOpenTextDocument: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     onDidChangeTextDocument: jest.fn(),
     onDidChangeConfiguration: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     createFileSystemWatcher: jest.fn().mockReturnValue({
@@ -137,6 +139,9 @@ export const workspace = {
         get: jest.fn().mockImplementation((_key: string, defaultValue?: unknown) => defaultValue),
         update: jest.fn().mockResolvedValue(undefined),
     }),
+    fs: {
+        stat: jest.fn(),
+    },
 };
 export const commands = {
     executeCommand: jest.fn(),
@@ -153,4 +158,22 @@ export const env = {
 };
 export const authentication = {
     getSession: jest.fn().mockResolvedValue(undefined),
+};
+export enum CommentThreadCollapsibleState { Collapsed = 0, Expanded = 1 }
+export enum CommentMode { Preview = 0, Editing = 1 }
+export const comments = {
+    createCommentController: jest.fn().mockImplementation(() => ({
+        set commentingRangeProvider(_: unknown) {},
+        createCommentThread: jest.fn().mockImplementation((_uri: unknown, _range: unknown, c: unknown) => ({
+            uri: _uri,
+            range: _range,
+            comments: c,
+            canReply: false,
+            label: undefined as string | undefined,
+            collapsibleState: CommentThreadCollapsibleState.Expanded,
+            contextValue: undefined as string | undefined,
+            dispose: jest.fn(),
+        })),
+        dispose: jest.fn(),
+    })),
 };

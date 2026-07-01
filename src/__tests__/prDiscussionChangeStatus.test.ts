@@ -172,4 +172,50 @@ describe('PrChangesProvider.changeThreadStatus', () => {
             'Failed to update thread status: HTTP 403: Forbidden'
         );
     });
+
+    it('calls updateThreadStatus with closed status', async () => {
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+
+        const thread = makeThread();
+        const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+
+        await provider.changeThreadStatus(item, 'closed');
+
+        expect(api.updateThreadStatus).toHaveBeenCalledWith(
+            'org', 'proj', 'repo1', 42, 7, 'closed', 'token'
+        );
+    });
+
+    it('calls updateThreadStatus with pending status', async () => {
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+
+        const thread = makeThread();
+        const item = new PrCommentThreadItem(thread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+
+        await provider.changeThreadStatus(item, 'pending');
+
+        expect(api.updateThreadStatus).toHaveBeenCalledWith(
+            'org', 'proj', 'repo1', 42, 7, 'pending', 'token'
+        );
+    });
+
+    it('sets per-status contextValue on PrCommentThreadItem', () => {
+        const activeThread = makeThread({ status: 'active' });
+        const activeItem = new PrCommentThreadItem(activeThread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+        expect(activeItem.contextValue).toBe('discussionThread.active');
+
+        const fixedThread = makeThread({ status: 'fixed' });
+        const fixedItem = new PrCommentThreadItem(fixedThread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+        expect(fixedItem.contextValue).toBe('discussionThread.fixed');
+
+        const closedThread = makeThread({ status: 'closed' });
+        const closedItem = new PrCommentThreadItem(closedThread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+        expect(closedItem.contextValue).toBe('discussionThread.closed');
+
+        const pendingThread = makeThread({ status: 'pending' });
+        const pendingItem = new PrCommentThreadItem(pendingThread, 'org', 'proj', 'repo1', 42, 'src', 'tgt');
+        expect(pendingItem.contextValue).toBe('discussionThread.pending');
+    });
 });

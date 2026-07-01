@@ -2,7 +2,7 @@
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
   "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "lucacelea",
   "license": "MIT",
   "icon": "icon.png",
@@ -199,6 +199,46 @@
         "icon": "$(debug-restart)"
       },
       {
+        "command": "azureDevops.closeThread",
+        "title": "Close",
+        "icon": "$(close)"
+      },
+      {
+        "command": "azureDevops.pendingThread",
+        "title": "Pending",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "azureDevops.inlineResolveThread",
+        "title": "Resolve",
+        "icon": "$(check)"
+      },
+      {
+        "command": "azureDevops.inlineWontFixThread",
+        "title": "Won't Fix",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "azureDevops.inlineByDesignThread",
+        "title": "By Design",
+        "icon": "$(info)"
+      },
+      {
+        "command": "azureDevops.inlineCloseThread",
+        "title": "Close",
+        "icon": "$(close)"
+      },
+      {
+        "command": "azureDevops.inlinePendingThread",
+        "title": "Pending",
+        "icon": "$(clock)"
+      },
+      {
+        "command": "azureDevops.inlineReactivateThread",
+        "title": "Reactivate",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "azureDevops.addGeneralComment",
         "title": "Add Comment",
         "icon": "$(add)"
@@ -258,6 +298,38 @@
           "when": "commentController == azureDevopsPrComments"
         }
       ],
+      "comments/commentThread/title": [
+        {
+          "command": "azureDevops.inlineResolveThread",
+          "group": "1_status@1",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlineWontFixThread",
+          "group": "1_status@2",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlineByDesignThread",
+          "group": "1_status@3",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlineCloseThread",
+          "group": "1_status@4",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlinePendingThread",
+          "group": "1_status@5",
+          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+        },
+        {
+          "command": "azureDevops.inlineReactivateThread",
+          "group": "1_status@1",
+          "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(?!active)./"
+        }
+      ],
       "commandPalette": [
         {
           "command": "azureDevops.editPrDescription",
@@ -281,6 +353,38 @@
         },
         {
           "command": "azureDevops.editorWaitForAuthorPr",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.closeThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.pendingThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlineResolveThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlineWontFixThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlineByDesignThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlineCloseThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlinePendingThread",
+          "when": "false"
+        },
+        {
+          "command": "azureDevops.inlineReactivateThread",
           "when": "false"
         }
       ],
@@ -415,8 +519,18 @@
           "group": "1_status@3"
         },
         {
+          "command": "azureDevops.closeThread",
+          "when": "viewItem == discussionThread.active",
+          "group": "1_status@4"
+        },
+        {
+          "command": "azureDevops.pendingThread",
+          "when": "viewItem == discussionThread.active",
+          "group": "1_status@5"
+        },
+        {
           "command": "azureDevops.reactivateThread",
-          "when": "viewItem == discussionThread.resolved",
+          "when": "viewItem =~ /^discussionThread\\.(?!active)./",
           "group": "1_status@1"
         }
       ]
@@ -427,7 +541,11 @@
         "azureDevops.authMethod": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "pat", "azureAd"],
+          "enum": [
+            "auto",
+            "pat",
+            "azureAd"
+          ],
           "enumDescriptions": [
             "Automatically use Azure AD when signed in, otherwise fall back to a stored PAT",
             "Personal Access Token (Basic auth)",
@@ -525,7 +643,11 @@
         },
         "azureDevops.notificationScope": {
           "type": "string",
-          "enum": ["all", "participating", "off"],
+          "enum": [
+            "all",
+            "participating",
+            "off"
+          ],
           "enumDescriptions": [
             "Show notifications for all visible pull requests",
             "Show notifications only for pull requests you created or are assigned to",

@@ -167,8 +167,9 @@ describe('PrChangesProvider.openThreadById', () => {
         provider.selectPr(makePr(), 'org');
         const items = await provider.getChildren();
 
+        // Root has general-comments node + a folder node ('src') for /src/app.ts
         expect(items).toHaveLength(2);
         expect(items[0].label).toBe('General Comments (1)');
-        expect(items[1].label).toBe('app.ts');
+        expect(items[1].label).toBe('src');
     });
 });
