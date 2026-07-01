@@ -2,7 +2,7 @@
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
   "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
-  "version": "1.0.5",
+  "version": "1.0.0",
   "publisher": "lucacelea",
   "license": "MIT",
   "icon": "icon.png",
@@ -144,6 +144,15 @@
         "command": "azureDevops.clearPrChanges",
         "title": "Clear PR Changes",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "azureDevops.resetReviewedFiles",
+        "title": "Azure DevOps: Reset Reviewed Files (this PR)",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "azureDevops.clearAllReviewedFiles",
+        "title": "Azure DevOps: Clear All Reviewed Files Data"
       },
       {
         "command": "azureDevops.openPrFileDiff",
@@ -432,6 +441,11 @@
           "group": "navigation"
         },
         {
+          "command": "azureDevops.resetReviewedFiles",
+          "when": "view == azureDevops.prChanges",
+          "group": "navigation"
+        },
+        {
           "command": "azureDevops.clearPrChanges",
           "when": "view == azureDevops.prChanges",
           "group": "navigation"
@@ -593,6 +607,11 @@
           "default": 60,
           "minimum": 30,
           "description": "Interval in seconds to auto-refresh the pull request list (minimum 30)."
+        },
+        "azureDevops.hideReviewedFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide files you have marked as reviewed in the PR Changes tree view."
         },
         "azureDevops.pullRequestAutoComplete": {
           "type": "boolean",

@@ -3,6 +3,31 @@ import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrCha
 import { getToken } from './auth';
 import { buildPrFileUri } from './prContentProvider';
 import { setCommentContent, buildCommentDocUri, clearCommentContent } from './prCommentDocProvider';
+import { ReviewedFilesStore } from './reviewedFiles';
+
+export interface SelectedPrContext {
+    org: string;
+    repoId: string;
+    prId: number;
+}
+
+export function buildSelectedPrContext(pr: EnrichedPullRequest, org: string): SelectedPrContext {
+    return {
+        org,
+        repoId: pr.repository?.id ?? '',
+        prId: pr.pullRequestId,
+    };
+}
+
+export function sameSelectedPrContext(
+    left: SelectedPrContext | undefined,
+    right: SelectedPrContext | undefined,
+): boolean {
+    return !!left && !!right
+        && left.org === right.org
+        && left.repoId === right.repoId
+        && left.prId === right.prId;
+}
 
 // --- Tree item types ---
 
@@ -20,12 +45,16 @@ export class PrFileItem extends vscode.TreeItem {
         public readonly targetCommitId: string,
         public readonly prId: number,
         public readonly sourceBranch: string = '',
+        reviewed: boolean = false,
     ) {
         const fileName = change.item.path.split('/').pop() ?? change.item.path;
         super(fileName, vscode.TreeItemCollapsibleState.None);
 
         this.tooltip = `${change.changeType}: ${change.item.path}`;
         this.contextValue = 'prFile';
+        this.checkboxState = reviewed
+            ? vscode.TreeItemCheckboxState.Checked
+            : vscode.TreeItemCheckboxState.Unchecked;
 
         switch (change.changeType) {
             case 'add':
@@ -165,7 +194,28 @@ export class PrFolderItem extends vscode.TreeItem {
         super(label, vscode.TreeItemCollapsibleState.Expanded);
         this.iconPath = new vscode.ThemeIcon('folder');
         this.contextValue = 'prFolder';
+        this.checkboxState = computeFolderCheckboxState(children);
     }
+}
+
+function computeFolderCheckboxState(children: (PrFolderItem | PrFileItem)[]): vscode.TreeItemCheckboxState {
+    const allFiles = collectAllFiles(children);
+    if (allFiles.length === 0) { return vscode.TreeItemCheckboxState.Unchecked; }
+    return allFiles.every(f => f.checkboxState === vscode.TreeItemCheckboxState.Checked)
+        ? vscode.TreeItemCheckboxState.Checked
+        : vscode.TreeItemCheckboxState.Unchecked;
+}
+
+function collectAllFiles(children: (PrFolderItem | PrFileItem)[]): PrFileItem[] {
+    const result: PrFileItem[] = [];
+    for (const child of children) {
+        if (child instanceof PrFileItem) {
+            result.push(child);
+        } else {
+            result.push(...collectAllFiles(child.children));
+        }
+    }
+    return result;
 }
 
 // --- Folder-tree helpers ---
@@ -229,16 +279,36 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
     private selectedPr?: EnrichedPullRequest;
     private selectedOrg?: string;
+    private currentIterationId?: number;
     private readonly secretStorage: vscode.SecretStorage;
+    private readonly reviewedStore?: ReviewedFilesStore;
 
-    constructor(secretStorage: vscode.SecretStorage) {
+    constructor(secretStorage: vscode.SecretStorage, reviewedStore?: ReviewedFilesStore) {
         this.secretStorage = secretStorage;
+        this.reviewedStore = reviewedStore;
     }
 
-    selectPr(pr: EnrichedPullRequest, org: string): void {
+    getSelectedPrContext(): SelectedPrContext | undefined {
+        if (!this.selectedPr || !this.selectedOrg) {
+            return undefined;
+        }
+
+        return buildSelectedPrContext(this.selectedPr, this.selectedOrg);
+    }
+
+    selectPr(pr: EnrichedPullRequest, org: string): boolean {
+        const current = this.getSelectedPrContext();
+        const next = buildSelectedPrContext(pr, org);
+        const switchedPr = !!current && !sameSelectedPrContext(current, next);
+
         this.selectedPr = pr;
         this.selectedOrg = org;
+        if (switchedPr) {
+            clearCommentContent();
+        }
         this._onDidChangeTreeData.fire();
+
+        return switchedPr;
     }
 
     refresh(): void {
@@ -248,7 +318,25 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     clear(): void {
         this.selectedPr = undefined;
         this.selectedOrg = undefined;
+        this.currentIterationId = undefined;
         clearCommentContent();
+        this._onDidChangeTreeData.fire();
+    }
+
+    setReviewed(item: PrFileItem, reviewed: boolean): void {
+        if (!this.reviewedStore || !this.selectedPr || this.currentIterationId === undefined) { return; }
+        this.reviewedStore.setReviewed(
+            this.selectedPr.pullRequestId,
+            this.currentIterationId,
+            item.change.item.path,
+            reviewed,
+        );
+        this._onDidChangeTreeData.fire();
+    }
+
+    resetCurrentPr(): void {
+        if (!this.reviewedStore || !this.selectedPr) { return; }
+        this.reviewedStore.resetPr(this.selectedPr.pullRequestId);
         this._onDidChangeTreeData.fire();
     }
 
@@ -301,6 +389,12 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const sourceCommitId = lastIteration.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration.targetRefCommit?.commitId ?? '';
 
+            // Reviewed-files state: reset if iteration changed, then load current set.
+            this.currentIterationId = lastIteration.id;
+            this.reviewedStore?.ensureIteration(pr.pullRequestId, lastIteration.id);
+            const reviewed = this.reviewedStore?.getReviewedFiles(pr.pullRequestId) ?? new Set<string>();
+            const hideReviewed = vscode.workspace.getConfiguration('azureDevops').get<boolean>('hideReviewedFiles', false);
+
             // Filter to visible threads (not deleted, has user comments)
             const visibleThreads = threads.filter((t) =>
                 !t.isDeleted &&
@@ -326,9 +420,11 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             // Build file items with thread children
             const fileItems = changes
                 .filter(c => c.item?.path)
+                .filter(c => !(hideReviewed && reviewed.has(c.item.path)))
                 .map(c => {
                     const item = new PrFileItem(
                         c, org, project, repoId, sourceCommitId, targetCommitId, pr.pullRequestId, sourceBranch,
+                        reviewed.has(c.item.path),
                     );
                     const threads = fileThreads.get(c.item.path);
                     if (threads && threads.length > 0) {

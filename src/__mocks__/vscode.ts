@@ -56,12 +56,14 @@ export class TreeItem {
     iconPath?: any;
     contextValue?: string;
     command?: any;
+    checkboxState?: TreeItemCheckboxState | { state: TreeItemCheckboxState; tooltip?: string };
     constructor(label?: string, collapsibleState?: TreeItemCollapsibleState) {
         if (typeof label === 'string') { this.label = label; }
         this.collapsibleState = collapsibleState;
     }
 }
 export enum TreeItemCollapsibleState { None = 0, Collapsed = 1, Expanded = 2 }
+export enum TreeItemCheckboxState { Unchecked = 0, Checked = 1 }
 export class ThemeIcon { constructor(public id: string, public color?: any) { } }
 export class ThemeColor { constructor(public id: string) { } }
 export class MarkdownString {

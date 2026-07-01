@@ -499,50 +499,50 @@ async function getChecks(
                 !e.configuration.isDeleted &&
                 !EXCLUDED_POLICY_TYPE_IDS.has(normalizeGuid(e.configuration.type?.id ?? '')))
             .map((e) => {
-            let status: PolicyCheck['status'];
-            if (validStatuses.includes(e.status)) {
-                status = e.status as PolicyCheck['status'];
-            } else {
-                status = 'notApplicable';
-            }
-
-            // Build policies may report "running" even after the build
-            // has finished when the evaluation itself is expired/stale.
-            if (status === 'running' && e.context?.isExpired) {
-                status = 'broken';
-            }
-
-            // For Required Reviewers policies, resolve the actual
-            // reviewer/team name via the Identities API.
-            let name = e.configuration.settings?.displayName
-                || e.configuration.settings?.statusName
-                || e.configuration.type?.displayName
-                || 'Policy check';
-
-            const typeId = normalizeGuid(e.configuration.type?.id ?? '');
-            if (typeId === REQUIRED_REVIEWERS_TYPE_ID && e.configuration.settings?.requiredReviewerIds?.length) {
-                const resolvedNames = e.configuration.settings.requiredReviewerIds
-                    .map((id) => reviewerNamesById.get(normalizeGuid(id)))
-                    .filter((n): n is string => !!n);
-                if (resolvedNames.length > 0) {
-                    name = resolvedNames.join(', ');
+                let status: PolicyCheck['status'];
+                if (validStatuses.includes(e.status)) {
+                    status = e.status as PolicyCheck['status'];
+                } else {
+                    status = 'notApplicable';
                 }
-            }
 
-            let pipelineUrl: string | undefined;
-            if (e.context?.buildId) {
-                pipelineUrl =
-                    `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}` +
-                    `/_build/results?buildId=${encodeURIComponent(String(e.context.buildId))}`;
-            }
+                // Build policies may report "running" even after the build
+                // has finished when the evaluation itself is expired/stale.
+                if (status === 'running' && e.context?.isExpired) {
+                    status = 'broken';
+                }
 
-            return {
-                name,
-                status,
-                isBlocking: e.configuration.isBlocking,
-                pipelineUrl,
-            };
-        });
+                // For Required Reviewers policies, resolve the actual
+                // reviewer/team name via the Identities API.
+                let name = e.configuration.settings?.displayName
+                    || e.configuration.settings?.statusName
+                    || e.configuration.type?.displayName
+                    || 'Policy check';
+
+                const typeId = normalizeGuid(e.configuration.type?.id ?? '');
+                if (typeId === REQUIRED_REVIEWERS_TYPE_ID && e.configuration.settings?.requiredReviewerIds?.length) {
+                    const resolvedNames = e.configuration.settings.requiredReviewerIds
+                        .map((id) => reviewerNamesById.get(normalizeGuid(id)))
+                        .filter((n): n is string => !!n);
+                    if (resolvedNames.length > 0) {
+                        name = resolvedNames.join(', ');
+                    }
+                }
+
+                let pipelineUrl: string | undefined;
+                if (e.context?.buildId) {
+                    pipelineUrl =
+                        `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}` +
+                        `/_build/results?buildId=${encodeURIComponent(String(e.context.buildId))}`;
+                }
+
+                return {
+                    name,
+                    status,
+                    isBlocking: e.configuration.isBlocking,
+                    pipelineUrl,
+                };
+            });
 
         const checksStatus = computeChecksStatus(checks);
 

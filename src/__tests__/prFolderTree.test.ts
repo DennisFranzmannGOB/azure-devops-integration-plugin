@@ -219,3 +219,115 @@ describe('Folder tree — PrFolderItem building', () => {
         expect(fileItem.sourceBranch).toBe('feature/my-pr');
     });
 });
+
+// --- Reviewed files / checkbox state ---
+
+function makeMockStore(reviewedPaths: string[] = [], iterationId = 1) {
+    return {
+        ensureIteration: jest.fn(),
+        getReviewedFiles: jest.fn().mockReturnValue(new Set(reviewedPaths)),
+        setReviewed: jest.fn(),
+        resetPr: jest.fn(),
+        clearAll: jest.fn(),
+        gc: jest.fn(),
+        isReviewed: jest.fn((_, path: string) => reviewedPaths.includes(path)),
+    };
+}
+
+describe('Reviewed files / checkbox state', () => {
+    beforeEach(() => {
+        api.getPrIterations.mockReset();
+        api.getPrThreads.mockReset();
+        api.getPrChanges.mockReset();
+        setupIterations();
+        api.getPrThreads.mockResolvedValue([]);
+    });
+
+    it('file is Unchecked when not reviewed', async () => {
+        api.getPrChanges.mockResolvedValue([makeChange('/src/app.ts')]);
+
+        const store = makeMockStore([]);
+        const provider = new PrChangesProvider({} as any, store as any);
+        provider.selectPr(makePr(), 'org');
+        const root = await provider.getChildren();
+
+        const folder = root[0] as PrFolderItem;
+        const children = await provider.getChildren(folder);
+        const file = children[0] as PrFileItem;
+
+        expect(file.checkboxState).toBe(vscode.TreeItemCheckboxState.Unchecked);
+    });
+
+    it('file is Checked when reviewed', async () => {
+        api.getPrChanges.mockResolvedValue([makeChange('/src/app.ts')]);
+
+        const store = makeMockStore(['/src/app.ts']);
+        const provider = new PrChangesProvider({} as any, store as any);
+        provider.selectPr(makePr(), 'org');
+        const root = await provider.getChildren();
+
+        const folder = root[0] as PrFolderItem;
+        const children = await provider.getChildren(folder);
+        const file = children[0] as PrFileItem;
+
+        expect(file.checkboxState).toBe(vscode.TreeItemCheckboxState.Checked);
+    });
+
+    it('folder is Checked only when all descendant files are reviewed', async () => {
+        api.getPrChanges.mockResolvedValue([
+            makeChange('/src/a.ts'),
+            makeChange('/src/b.ts'),
+        ]);
+
+        const storeAll = makeMockStore(['/src/a.ts', '/src/b.ts']);
+        const providerAll = new PrChangesProvider({} as any, storeAll as any);
+        providerAll.selectPr(makePr(), 'org');
+        const rootAll = await providerAll.getChildren();
+        expect((rootAll[0] as PrFolderItem).checkboxState).toBe(vscode.TreeItemCheckboxState.Checked);
+
+        const storePartial = makeMockStore(['/src/a.ts']);
+        const providerPartial = new PrChangesProvider({} as any, storePartial as any);
+        providerPartial.selectPr(makePr(), 'org');
+        const rootPartial = await providerPartial.getChildren();
+        expect((rootPartial[0] as PrFolderItem).checkboxState).toBe(vscode.TreeItemCheckboxState.Unchecked);
+    });
+
+    it('ensureIteration is called on every load', async () => {
+        api.getPrChanges.mockResolvedValue([makeChange('/src/app.ts')]);
+
+        const store = makeMockStore([]);
+        const provider = new PrChangesProvider({} as any, store as any);
+        provider.selectPr(makePr(), 'org');
+        await provider.getChildren();
+
+        expect(store.ensureIteration).toHaveBeenCalledWith(42, 1);
+    });
+
+    it('hides reviewed files when hideReviewedFiles is true', async () => {
+        api.getPrChanges.mockResolvedValue([
+            makeChange('/src/a.ts'),
+            makeChange('/src/b.ts'),
+        ]);
+        (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+            get: jest.fn().mockImplementation((key: string, def: unknown) =>
+                key === 'hideReviewedFiles' ? true : def
+            ),
+        });
+
+        const store = makeMockStore(['/src/a.ts']);
+        const provider = new PrChangesProvider({} as any, store as any);
+        provider.selectPr(makePr(), 'org');
+        const root = await provider.getChildren();
+
+        // Only b.ts should appear
+        const folder = root[0] as PrFolderItem;
+        const children = await provider.getChildren(folder);
+        expect(children).toHaveLength(1);
+        expect((children[0] as PrFileItem).change.item.path).toBe('/src/b.ts');
+
+        // Reset mock
+        (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+            get: jest.fn().mockImplementation((_key: string, def?: unknown) => def),
+        });
+    });
+});

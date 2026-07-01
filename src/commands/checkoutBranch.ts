@@ -14,23 +14,23 @@ function runGit(command: string, cwd: string): Promise<string> {
     });
 }
 
-export async function checkoutPrBranch(item: PullRequestItem): Promise<void> {
+export async function checkoutPrBranch(item: PullRequestItem): Promise<boolean> {
     const pr = item.pr;
     if (!pr) {
         vscode.window.showErrorMessage('No pull request data available.');
-        return;
+        return false;
     }
 
     const branch = pr.sourceRefName?.replace(/^refs\/heads\//, '');
     if (!branch) {
         vscode.window.showErrorMessage('No source branch found.');
-        return;
+        return false;
     }
 
     const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!cwd) {
         vscode.window.showErrorMessage('No workspace folder open.');
-        return;
+        return false;
     }
 
     try {
@@ -42,7 +42,10 @@ export async function checkoutPrBranch(item: PullRequestItem): Promise<void> {
             }
         );
         vscode.window.showInformationMessage(`Checked out branch: ${branch}`);
-    } catch (e: any) {
-        vscode.window.showErrorMessage(`Failed to checkout: ${e.message}`);
+        return true;
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Unknown error';
+        vscode.window.showErrorMessage(`Failed to checkout: ${message}`);
+        return false;
     }
 }

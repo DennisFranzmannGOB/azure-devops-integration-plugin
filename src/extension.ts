@@ -6,18 +6,40 @@ import { configureAuthentication, setToken, removeToken, loginWithAzureAd, logou
 import { createTaskForPr } from './commands/createTask';
 import { createStatusBarItem } from './statusBar';
 import { registerPrSidebar, PrFilter, PrSort } from './prSidebar';
+import type { PullRequestItem } from './prSidebar';
 import { registerPrActions, registerEditorVoteCommands } from './commands/prActions';
 import { checkoutPrBranch } from './commands/checkoutBranch';
 import { editExistingPrDescription } from './commands/editPrDescription';
-import { PrChangesProvider, PrFileItem, PrCommentThreadItem } from './prChangesProvider';
+import {
+    PrChangesProvider,
+    PrFileItem,
+    PrFolderItem,
+    PrCommentThreadItem,
+    buildSelectedPrContext,
+    sameSelectedPrContext,
+} from './prChangesProvider';
 import { PrContentProvider, buildPrFileUri } from './prContentProvider';
 import { PrCommentController } from './prComments';
 import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider';
 import { buildPullRequestThreadUrl } from './prLinks';
 import { tryGetReviewModeUri } from './reviewMode';
+import { ReviewedFilesStore } from './reviewedFiles';
 
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
+
+    // Helper used by the checkbox handler to cascade folder ticks to all descendant files.
+    function collectFolderFiles(folder: PrFolderItem): PrFileItem[] {
+        const result: PrFileItem[] = [];
+        for (const child of folder.children) {
+            if (child instanceof PrFileItem) {
+                result.push(child);
+            } else {
+                result.push(...collectFolderFiles(child));
+            }
+        }
+        return result;
+    }
 
     // Register PR sidebar first (needed by token commands)
     const prProvider = registerPrSidebar(context, secretStorage);
@@ -61,10 +83,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register PR quick actions (Phase 1)
     registerPrActions(context, prProvider);
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevops.checkoutPrBranch', checkoutPrBranch),
-    );
 
     // Filter & sort commands (Phase 5)
     context.subscriptions.push(
@@ -121,16 +139,26 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // PR changes tree view (includes file changes + discussion threads)
-    const prChangesProvider = new PrChangesProvider(secretStorage);
+    const reviewedStore = new ReviewedFilesStore(context.workspaceState);
+    reviewedStore.gc();
+    const prChangesProvider = new PrChangesProvider(secretStorage, reviewedStore);
     const prChangesTree = vscode.window.createTreeView('azureDevops.prChanges', {
         treeDataProvider: prChangesProvider,
+        manageCheckboxStateManually: true,
     });
     context.subscriptions.push(prChangesTree);
 
+    const switchToPr = (pr: Parameters<PrChangesProvider['selectPr']>[0], org: string): void => {
+        const switchedPr = prChangesProvider.selectPr(pr, org);
+        if (switchedPr) {
+            prCommentController.clearAll();
+        }
+        prChangesTree.title = `Changes: #${pr.pullRequestId}`;
+    };
+
     prProvider.setCommentNotificationHandlers({
         openComment: async ({ org, pr, thread }) => {
-            prChangesProvider.selectPr(pr, org);
-            prChangesTree.title = `Changes: #${pr.pullRequestId}`;
+            switchToPr(pr, org);
             await prChangesProvider.openThreadById(pr, org, thread.threadId);
         },
         openInDevOps: async ({ org, pr, thread }) => {
@@ -142,10 +170,27 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevops.reviewPrChanges', (item: any) => {
+        vscode.commands.registerCommand('azureDevops.checkoutPrBranch', async (item: PullRequestItem | undefined) => {
+            const currentSelection = prChangesProvider.getSelectedPrContext();
+            if (!item) {
+                return;
+            }
+
+            const checkedOut = await checkoutPrBranch(item);
+            if (!checkedOut || !item.pr || !item.org) {
+                return;
+            }
+
+            const nextSelection = buildSelectedPrContext(item.pr, item.org);
+            if (!currentSelection || !sameSelectedPrContext(currentSelection, nextSelection)) {
+                prChangesProvider.clear();
+                prCommentController.clearAll();
+                prChangesTree.title = 'PR Changes';
+            }
+        }),
+        vscode.commands.registerCommand('azureDevops.reviewPrChanges', (item: PullRequestItem | undefined) => {
             if (item?.pr && item?.org) {
-                prChangesProvider.selectPr(item.pr, item.org);
-                prChangesTree.title = `Changes: #${item.pr.pullRequestId}`;
+                switchToPr(item.pr, item.org);
             }
         }),
         vscode.commands.registerCommand('azureDevops.clearPrChanges', () => {
@@ -156,6 +201,25 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.refreshPrChanges', () => {
             prChangesProvider.refresh();
             prCommentController.refreshAll();
+        }),
+        prChangesTree.onDidChangeCheckboxState(e => {
+            for (const [item, state] of e.items) {
+                if (item instanceof PrFileItem) {
+                    prChangesProvider.setReviewed(item, state === vscode.TreeItemCheckboxState.Checked);
+                } else if (item instanceof PrFolderItem) {
+                    const allFiles = collectFolderFiles(item);
+                    for (const file of allFiles) {
+                        prChangesProvider.setReviewed(file, state === vscode.TreeItemCheckboxState.Checked);
+                    }
+                }
+            }
+        }),
+        vscode.commands.registerCommand('azureDevops.resetReviewedFiles', () => {
+            prChangesProvider.resetCurrentPr();
+        }),
+        vscode.commands.registerCommand('azureDevops.clearAllReviewedFiles', () => {
+            reviewedStore.clearAll();
+            prChangesProvider.refresh();
         }),
         vscode.commands.registerCommand('azureDevops.openDiscussionComment', (item: PrCommentThreadItem) => {
             return prChangesProvider.openComment(item);
