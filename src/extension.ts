@@ -29,6 +29,22 @@ import { PrUpdatesProvider, PrIterationFileItem } from './prUpdatesProvider';
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
 
+    function safeShowWarningMessage(message: string): void {
+        try {
+            void vscode.window.showWarningMessage(message);
+        } catch {
+            // Guard against VS Code window-layer notification errors.
+        }
+    }
+
+    function safeShowErrorMessage(message: string): void {
+        try {
+            void vscode.window.showErrorMessage(message);
+        } catch {
+            // Guard against VS Code window-layer notification errors.
+        }
+    }
+
     // Helper used by the checkbox handler to cascade folder ticks to all descendant files.
     function collectFolderFiles(folder: PrFolderItem): PrFileItem[] {
         const result: PrFileItem[] = [];
@@ -181,7 +197,15 @@ export function activate(context: vscode.ExtensionContext) {
     prProvider.setCommentNotificationHandlers({
         openComment: async ({ org, pr, thread }) => {
             switchToPr(pr, org);
-            await prChangesProvider.openThreadById(pr, org, thread.threadId);
+            try {
+                const opened = await prChangesProvider.openThreadById(pr, org, thread.threadId);
+                if (!opened) {
+                    safeShowWarningMessage('Unable to open this comment thread. It may no longer be available.');
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                safeShowErrorMessage(`Failed to open comment thread: ${message}`);
+            }
         },
         openInDevOps: async ({ org, pr, thread }) => {
             const project = pr.repository?.project?.name ?? '';
@@ -266,8 +290,13 @@ export function activate(context: vscode.ExtensionContext) {
             reviewedStore.clearAll();
             prChangesProvider.refresh();
         }),
-        vscode.commands.registerCommand('azureDevops.openDiscussionComment', (item: PrCommentThreadItem) => {
-            return prChangesProvider.openComment(item);
+        vscode.commands.registerCommand('azureDevops.openDiscussionComment', async (item: PrCommentThreadItem) => {
+            try {
+                await prChangesProvider.openComment(item);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                safeShowErrorMessage(`Failed to open discussion comment: ${message}`);
+            }
         }),
         vscode.commands.registerCommand('azureDevops.openThreadInBrowser', async (item: PrCommentThreadItem) => {
             const url = buildPullRequestThreadUrl(item.org, item.project, item.repoName, item.prId, item.thread.id);

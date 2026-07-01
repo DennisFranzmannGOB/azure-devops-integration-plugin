@@ -195,6 +195,46 @@ describe('Folder tree — PrFolderItem building', () => {
         expect(fileChildren[0]).toBeInstanceOf(PrCommentThreadItem);
     });
 
+    it('attaches renamed-file threads even when the thread still points at the original path', async () => {
+        api.getPrChanges.mockResolvedValue([
+            {
+                changeType: 'rename',
+                item: { path: '/src/new-name.ts' },
+                originalPath: '/src/old-name.ts',
+            },
+        ]);
+        api.getPrThreads.mockResolvedValue([{
+            id: 2,
+            status: 'active',
+            isDeleted: false,
+            threadContext: {
+                filePath: '/src/old-name.ts',
+                leftFileStart: { line: 5, offset: 1 },
+                leftFileEnd: { line: 5, offset: 1 },
+            },
+            comments: [{
+                id: 1, parentCommentId: 0, content: 'Rename comment',
+                author: { displayName: 'Alice', id: 'a1' },
+                publishedDate: '2024-01-01T00:00:00Z',
+                commentType: 'text', isDeleted: false,
+            }],
+        }]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        const root = await provider.getChildren();
+
+        const folder = root[0] as PrFolderItem;
+        const folderChildren = await provider.getChildren(folder);
+        const fileNode = folderChildren[0] as PrFileItem;
+
+        expect(fileNode.change.item.path).toBe('/src/new-name.ts');
+
+        const fileChildren = await provider.getChildren(fileNode);
+        expect(fileChildren).toHaveLength(1);
+        expect(fileChildren[0]).toBeInstanceOf(PrCommentThreadItem);
+    });
+
     it('sets correct contextValue on PrFolderItem', async () => {
         api.getPrChanges.mockResolvedValue([makeChange('/src/app.ts')]);
 

@@ -467,6 +467,14 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         this.secretStorage = secretStorage;
     }
 
+    private safeShowErrorMessage(message: string): void {
+        try {
+            void vscode.window.showErrorMessage(message);
+        } catch {
+            // Guard against VS Code window-layer notification errors.
+        }
+    }
+
     refresh(): void {
         this._onDidChangeTreeData.fire();
     }
@@ -595,23 +603,33 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         this.previousThreadSnapshot = newSnapshot;
         this.initialized = true;
 
-        if (newCommentEvents.length === 1) {
-            const event = newCommentEvents[0];
-            const selection = await vscode.window.showInformationMessage(
-                `New comments on PR #${event.pr.pullRequestId}: ${event.pr.title}`,
-                'Open Comment',
-                'Open in DevOps'
-            );
+        try {
+            if (newCommentEvents.length === 1) {
+                const event = newCommentEvents[0];
+                const selection = await vscode.window.showInformationMessage(
+                    `New comments on PR #${event.pr.pullRequestId}: ${event.pr.title}`,
+                    'Open Comment',
+                    'Open in DevOps'
+                );
 
-            if (selection === 'Open Comment') {
-                await this.commentNotificationHandlers?.openComment(event);
-            } else if (selection === 'Open in DevOps') {
-                await this.commentNotificationHandlers?.openInDevOps(event);
+                try {
+                    if (selection === 'Open Comment') {
+                        await this.commentNotificationHandlers?.openComment(event);
+                    } else if (selection === 'Open in DevOps') {
+                        await this.commentNotificationHandlers?.openInDevOps(event);
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.safeShowErrorMessage(`Failed to open comment notification target: ${message}`);
+                }
+            } else if (newCommentEvents.length > 1) {
+                await vscode.window.showInformationMessage(
+                    `New comments on ${newCommentEvents.length} discussion threads`
+                );
             }
-        } else if (newCommentEvents.length > 1) {
-            await vscode.window.showInformationMessage(
-                `New comments on ${newCommentEvents.length} discussion threads`
-            );
+        } catch {
+            // Guard against VS Code UI-layer errors (for example message/action-bar races)
+            // so polling never propagates an unhandled rejection to the window.
         }
     }
 
@@ -739,7 +757,9 @@ export function registerPrSidebar(
     }
 
     const intervalHandle = setInterval(() => {
-        provider.pollForNewComments();
+        provider.pollForNewComments().catch(() => {
+            // Polling must never crash the extension host loop.
+        });
     }, intervalSeconds * 1000);
 
     context.subscriptions.push({

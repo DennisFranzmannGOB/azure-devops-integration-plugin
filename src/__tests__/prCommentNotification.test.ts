@@ -38,6 +38,7 @@ function makePr(
 describe('PullRequestTreeProvider.checkForNewComments', () => {
     let provider: PullRequestTreeProvider;
     let showInfoMock: jest.Mock;
+    let showErrorMock: jest.Mock;
     let openComment: jest.Mock;
     let openInDevOps: jest.Mock;
 
@@ -45,6 +46,9 @@ describe('PullRequestTreeProvider.checkForNewComments', () => {
         showInfoMock = vscode.window.showInformationMessage as jest.Mock;
         showInfoMock.mockReset();
         showInfoMock.mockResolvedValue(undefined);
+
+        showErrorMock = vscode.window.showErrorMessage as jest.Mock;
+        showErrorMock.mockReset();
 
         const getConfigMock = vscode.workspace.getConfiguration as jest.Mock;
         getConfigMock.mockReturnValue({
@@ -163,5 +167,25 @@ describe('PullRequestTreeProvider.checkForNewComments', () => {
         expect(openInDevOps).toHaveBeenCalledTimes(1);
         expect(openInDevOps.mock.calls[0][0].pr.pullRequestId).toBe(1);
         expect(openComment).not.toHaveBeenCalled();
+    });
+
+    it('shows a clear error when a notification handler throws', async () => {
+        showInfoMock.mockResolvedValue('Open Comment');
+        openComment.mockRejectedValue(new Error('boom'));
+
+        await provider.checkForNewComments([makePr(1, 'My PR', 1, [makeThread(10, 100)])]);
+        await provider.checkForNewComments([makePr(1, 'My PR', 1, [makeThread(10, 101)])]);
+
+        expect(showErrorMock).toHaveBeenCalledWith('Failed to open comment notification target: boom');
+    });
+
+    it('does not throw when VS Code message UI fails internally', async () => {
+        showInfoMock.mockRejectedValue(new Error('Cannot read properties of undefined (reading setActions)'));
+
+        await provider.checkForNewComments([makePr(1, 'My PR', 1, [makeThread(10, 100)])]);
+
+        await expect(
+            provider.checkForNewComments([makePr(1, 'My PR', 1, [makeThread(10, 101)])])
+        ).resolves.toBeUndefined();
     });
 });

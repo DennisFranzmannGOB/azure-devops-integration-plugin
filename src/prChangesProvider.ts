@@ -34,6 +34,44 @@ export function sameSelectedPrContext(
 
 export type PrChangesTreeItem = PrFileItem | PrFolderItem | PrCommentThreadItem | PrCommentReplyItem | PrGeneralCommentsItem;
 
+interface ResolvedThreadPaths {
+    displayFilePath?: string;
+    leftFilePath?: string;
+    rightFilePath?: string;
+}
+
+function resolveThreadPaths(thread: PrThread, changes: PrChange[] = []): ResolvedThreadPaths {
+    const threadFilePath = thread.threadContext?.filePath;
+    if (!threadFilePath) {
+        return {};
+    }
+
+    const matchingChange = changes.find((change) => change.item?.path === threadFilePath)
+        ?? changes.find((change) => change.originalPath === threadFilePath);
+
+    const currentPath = matchingChange?.item?.path ?? threadFilePath;
+    const originalPath = matchingChange?.originalPath ?? threadFilePath;
+
+    switch (matchingChange?.changeType) {
+        case 'add':
+            return {
+                displayFilePath: currentPath,
+                rightFilePath: currentPath,
+            };
+        case 'delete':
+            return {
+                displayFilePath: currentPath,
+                leftFilePath: originalPath,
+            };
+        default:
+            return {
+                displayFilePath: currentPath,
+                leftFilePath: originalPath,
+                rightFilePath: currentPath,
+            };
+    }
+}
+
 export class PrFileItem extends vscode.TreeItem {
     public children?: PrCommentThreadItem[];
 
@@ -92,6 +130,7 @@ export class PrCommentThreadItem extends vscode.TreeItem {
         public readonly sourceCommitId: string,
         public readonly targetCommitId: string,
         public readonly repoName: string = '',
+        public readonly diffPaths: ResolvedThreadPaths = resolveThreadPaths(thread),
     ) {
         const userComments = thread.comments.filter(
             (c) => !c.isDeleted && c.commentType !== 'system'
@@ -102,7 +141,7 @@ export class PrCommentThreadItem extends vscode.TreeItem {
             ? firstComment.content.replaceAll('\n', ' ').slice(0, 80)
             : '';
 
-        const filePath = thread.threadContext?.filePath;
+        const filePath = diffPaths.displayFilePath ?? thread.threadContext?.filePath;
         const isGeneral = !filePath;
 
         const hasReplies = userComments.length > 1;
@@ -148,7 +187,7 @@ export class PrCommentThreadItem extends vscode.TreeItem {
 
         this.contextValue = `discussionThread.${thread.status ?? 'unknown'}`;
 
-        if (isGeneral || (filePath && sourceCommitId && targetCommitId)) {
+        if (isGeneral || ((diffPaths.leftFilePath || diffPaths.rightFilePath) && sourceCommitId && targetCommitId)) {
             this.command = {
                 command: 'azureDevops.openDiscussionComment',
                 title: 'Open Comment',
@@ -435,7 +474,8 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const fileThreads = new Map<string, PrThread[]>();
             const generalThreads: PrThread[] = [];
             for (const thread of visibleThreads) {
-                const filePath = thread.threadContext?.filePath;
+                const resolvedPaths = resolveThreadPaths(thread, changes);
+                const filePath = resolvedPaths.displayFilePath;
                 if (filePath) {
                     const existing = fileThreads.get(filePath) ?? [];
                     existing.push(thread);
@@ -459,7 +499,17 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                     const threads = fileThreads.get(c.item.path);
                     if (threads && threads.length > 0) {
                         item.children = threads.map((t) =>
-                            new PrCommentThreadItem(t, org, project, repoId, pr.pullRequestId, sourceCommitId, targetCommitId, pr.repository?.name ?? '')
+                            new PrCommentThreadItem(
+                                t,
+                                org,
+                                project,
+                                repoId,
+                                pr.pullRequestId,
+                                sourceCommitId,
+                                targetCommitId,
+                                pr.repository?.name ?? '',
+                                resolveThreadPaths(t, changes),
+                            )
                         );
                         item.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
                     }
@@ -572,21 +622,37 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             return this.showFullComment(item);
         }
 
-        const filePath = ctx.filePath;
+        const hasRequiredCommitContext =
+            (!item.diffPaths.leftFilePath || !!item.targetCommitId) &&
+            (!item.diffPaths.rightFilePath || !!item.sourceCommitId);
+
+        if (!hasRequiredCommitContext) {
+            return this.showFullComment(item);
+        }
+
         const isRight = !!ctx.rightFileStart;
         const pos = ctx.rightFileStart ?? ctx.leftFileStart;
-        const line = pos ? pos.line - 1 : 0;
+        const line = Math.max(0, (pos?.line ?? 1) - 1);
 
-        const leftUri = buildPrFileUri(
-            item.org, item.project, item.repoId, item.targetCommitId, filePath, item.prId, 'left'
-        );
-        const rightUri = buildPrFileUri(
-            item.org, item.project, item.repoId, item.sourceCommitId, filePath, item.prId, 'right'
-        );
+        const label = item.diffPaths.displayFilePath ?? ctx.filePath;
+        const leftUri = item.diffPaths.leftFilePath
+            ? buildPrFileUri(
+                item.org, item.project, item.repoId, item.targetCommitId, item.diffPaths.leftFilePath, item.prId, 'left'
+            )
+            : vscode.Uri.parse('azuredevops-pr://empty');
+        const rightUri = item.diffPaths.rightFilePath
+            ? buildPrFileUri(
+                item.org, item.project, item.repoId, item.sourceCommitId, item.diffPaths.rightFilePath, item.prId, 'right'
+            )
+            : vscode.Uri.parse('azuredevops-pr://empty');
 
-        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, filePath);
+        try {
+            await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label);
+        } catch {
+            return this.showFullComment(item);
+        }
 
-        if (isRight) {
+        if (isRight && item.diffPaths.rightFilePath) {
             setTimeout(() => {
                 const editor = vscode.window.activeTextEditor;
                 if (editor) {
@@ -615,6 +681,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const lastIteration = iterations.at(-1);
             const sourceCommitId = lastIteration?.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration?.targetRefCommit?.commitId ?? '';
+            const changes = lastIteration?.id
+                ? await getPrChanges(org, project, repoId, pr.pullRequestId, lastIteration.id, token)
+                : [];
 
             const visibleThreads = threads
                 .filter((t) =>
@@ -623,7 +692,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                 )
                 .map((t) => new PrCommentThreadItem(
                     t, org, project, repoId, pr.pullRequestId,
-                    sourceCommitId, targetCommitId
+                    sourceCommitId, targetCommitId,
+                    '',
+                    resolveThreadPaths(t, changes),
                 ));
 
             const target = visibleThreads.find((item) => item.thread.id === threadId) ?? visibleThreads[0];
