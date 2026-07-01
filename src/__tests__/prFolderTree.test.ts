@@ -224,7 +224,8 @@ describe('Folder tree — PrFolderItem building', () => {
 
 function makeMockStore(reviewedPaths: string[] = [], iterationId = 1) {
     return {
-        ensureIteration: jest.fn(),
+        getStoredIterationId: jest.fn().mockReturnValue(iterationId),
+        advanceIteration: jest.fn(),
         getReviewedFiles: jest.fn().mockReturnValue(new Set(reviewedPaths)),
         setReviewed: jest.fn(),
         resetPr: jest.fn(),
@@ -292,15 +293,17 @@ describe('Reviewed files / checkbox state', () => {
         expect((rootPartial[0] as PrFolderItem).checkboxState).toBe(vscode.TreeItemCheckboxState.Unchecked);
     });
 
-    it('ensureIteration is called on every load', async () => {
+    it('advanceIteration is called on first load (no stored iteration)', async () => {
         api.getPrChanges.mockResolvedValue([makeChange('/src/app.ts')]);
 
+        // Simulate no prior entry: getStoredIterationId returns undefined
         const store = makeMockStore([]);
+        store.getStoredIterationId.mockReturnValue(undefined);
         const provider = new PrChangesProvider({} as any, store as any);
         provider.selectPr(makePr(), 'org');
         await provider.getChildren();
 
-        expect(store.ensureIteration).toHaveBeenCalledWith(42, 1);
+        expect(store.advanceIteration).toHaveBeenCalledWith(42, 1, []);
     });
 
     it('hides reviewed files when hideReviewedFiles is true', async () => {

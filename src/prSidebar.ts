@@ -24,6 +24,41 @@ interface CommentNotificationHandlers {
     openInDevOps: (event: CommentNotificationEvent) => Promise<void>;
 }
 
+// ---------------------------------------------------------------------------
+// Vote-status classification
+// ---------------------------------------------------------------------------
+
+export type ReviewerVoteStatus =
+    | 'rejected'
+    | 'needs-review'
+    | 'waiting-for-author'
+    | 'approved-suggestions'
+    | 'approved';
+
+export type CreatorPrStatus =
+    | 'rejected'
+    | 'changes-requested'
+    | 'waiting-for-review'
+    | 'approved';
+
+export function getMyVoteStatus(pr: EnrichedPullRequest, userId: string): ReviewerVoteStatus {
+    const myReview = pr.reviewers?.find((r) => r.id === userId);
+    if (!myReview) { return 'needs-review'; }
+    if (myReview.vote === -10) { return 'rejected'; }
+    if (myReview.vote === -5) { return 'waiting-for-author'; }
+    if (myReview.vote === 5) { return 'approved-suggestions'; }
+    if (myReview.vote >= 10) { return 'approved'; }
+    return 'needs-review';
+}
+
+export function getCreatorPrStatus(pr: EnrichedPullRequest): CreatorPrStatus {
+    const reviewers = pr.reviewers ?? [];
+    if (reviewers.some((r) => r.vote === -10)) { return 'rejected'; }
+    if (reviewers.some((r) => r.vote === -5)) { return 'changes-requested'; }
+    if (reviewers.length > 0 && reviewers.every((r) => r.vote >= 5)) { return 'approved'; }
+    return 'waiting-for-review';
+}
+
 export function formatRelativeTime(dateStr: string): string {
     const now = Date.now();
     const then = new Date(dateStr).getTime();
@@ -63,8 +98,8 @@ export class PullRequestItem extends vscode.TreeItem {
         this.children = children;
     }
 
-    static fromCategory(name: string, prItems: PullRequestItem[]): PullRequestItem {
-        // Group PRs by repository
+    /** Group prItems by repo, adding a repo sub-level only when there are multiple repos. */
+    private static buildRepoChildren(prItems: PullRequestItem[]): PullRequestItem[] {
         const repoGroups = new Map<string, PullRequestItem[]>();
         for (const prItem of prItems) {
             const repoName = prItem.pr?.repository?.name ?? 'Unknown';
@@ -76,22 +111,52 @@ export class PullRequestItem extends vscode.TreeItem {
             group.push(prItem);
         }
 
-        let children: PullRequestItem[];
         if (repoGroups.size === 1) {
-            // Single repo — no need for an extra nesting level
-            children = prItems;
+            return prItems;
+        }
+
+        const result: PullRequestItem[] = [];
+        for (const [repoName, items] of repoGroups) {
+            const repoItem = new PullRequestItem(
+                `${repoName} (${items.length})`,
+                vscode.TreeItemCollapsibleState.Expanded,
+                items
+            );
+            repoItem.iconPath = new vscode.ThemeIcon('repo');
+            result.push(repoItem);
+        }
+        return result;
+    }
+
+    /** Create a vote-status sub-group node (e.g. "Needs Review (3)"). */
+    static fromVoteStatusGroup(
+        label: string,
+        iconId: string,
+        iconColor: vscode.ThemeColor | undefined,
+        children: PullRequestItem[]
+    ): PullRequestItem {
+        const item = new PullRequestItem(
+            label,
+            vscode.TreeItemCollapsibleState.Expanded,
+            children
+        );
+        item.iconPath = new vscode.ThemeIcon(iconId, iconColor);
+        item.contextValue = 'voteStatusGroup';
+        return item;
+    }
+
+    static fromCategory(
+        name: string,
+        prItems: PullRequestItem[],
+        userId?: string,
+        isCreator?: boolean
+    ): PullRequestItem {
+        let children: PullRequestItem[];
+
+        if (userId) {
+            children = PullRequestItem.buildVoteStatusChildren(prItems, userId, isCreator ?? false);
         } else {
-            // Multiple repos — add repo sub-groups
-            children = [];
-            for (const [repoName, items] of repoGroups) {
-                const repoItem = new PullRequestItem(
-                    `${repoName} (${items.length})`,
-                    vscode.TreeItemCollapsibleState.Expanded,
-                    items
-                );
-                repoItem.iconPath = new vscode.ThemeIcon('repo');
-                children.push(repoItem);
-            }
+            children = PullRequestItem.buildRepoChildren(prItems);
         }
 
         const item = new PullRequestItem(
@@ -100,6 +165,65 @@ export class PullRequestItem extends vscode.TreeItem {
             children
         );
         return item;
+    }
+
+    private static buildVoteStatusChildren(
+        prItems: PullRequestItem[],
+        userId: string,
+        isCreator: boolean
+    ): PullRequestItem[] {
+        type GroupDef = {
+            key: string;
+            label: string;
+            iconId: string;
+            color: vscode.ThemeColor | undefined;
+        };
+
+        const reviewerGroups: GroupDef[] = [
+            { key: 'rejected',            label: 'Rejected',                   iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
+            { key: 'needs-review',        label: 'Needs Review',               iconId: 'eye',          color: undefined },
+            { key: 'waiting-for-author',  label: 'Waiting for Author',         iconId: 'watch',        color: new vscode.ThemeColor('warningForeground') },
+            { key: 'approved-suggestions',label: 'Approved with Suggestions',  iconId: 'pass',         color: new vscode.ThemeColor('testing.iconPassed') },
+            { key: 'approved',            label: 'Approved',                   iconId: 'check',        color: new vscode.ThemeColor('testing.iconPassed') },
+        ];
+
+        const creatorGroups: GroupDef[] = [
+            { key: 'rejected',           label: 'Rejected',              iconId: 'circle-slash', color: new vscode.ThemeColor('errorForeground') },
+            { key: 'changes-requested',  label: 'Changes Requested',     iconId: 'watch',        color: new vscode.ThemeColor('warningForeground') },
+            { key: 'waiting-for-review', label: 'Waiting for Review',    iconId: 'eye',          color: undefined },
+            { key: 'approved',           label: 'Approved',              iconId: 'check',        color: new vscode.ThemeColor('testing.iconPassed') },
+        ];
+
+        const groups = isCreator ? creatorGroups : reviewerGroups;
+
+        // Classify each PR item
+        const buckets = new Map<string, PullRequestItem[]>();
+        for (const groupDef of groups) {
+            buckets.set(groupDef.key, []);
+        }
+        for (const prItem of prItems) {
+            if (!prItem.pr) { continue; }
+            const key = isCreator
+                ? getCreatorPrStatus(prItem.pr)
+                : getMyVoteStatus(prItem.pr, userId);
+            buckets.get(key)?.push(prItem);
+        }
+
+        // Build group nodes, skipping empty ones
+        const result: PullRequestItem[] = [];
+        for (const groupDef of groups) {
+            const items = buckets.get(groupDef.key) ?? [];
+            if (items.length === 0) { continue; }
+            const repoChildren = PullRequestItem.buildRepoChildren(items);
+            result.push(PullRequestItem.fromVoteStatusGroup(
+                `${groupDef.label} (${items.length})`,
+                groupDef.iconId,
+                groupDef.color,
+                repoChildren
+            ));
+        }
+
+        return result;
     }
 
     static fromPullRequest(
@@ -567,17 +691,17 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
 
         if (filteredCreated.length > 0) {
             const items = filteredCreated.map((pr) => PullRequestItem.fromPullRequest(pr, org));
-            categories.push(PullRequestItem.fromCategory('Created by me', items));
+            categories.push(PullRequestItem.fromCategory('Created by me', items, this.cachedUserId, true));
         }
 
         if (filteredAssigned.length > 0) {
             const items = filteredAssigned.map((pr) => PullRequestItem.fromPullRequest(pr, org));
-            categories.push(PullRequestItem.fromCategory('Assigned to me', items));
+            categories.push(PullRequestItem.fromCategory('Assigned to me', items, this.cachedUserId, false));
         }
 
         if (filteredTeams.length > 0) {
             const items = filteredTeams.map((pr) => PullRequestItem.fromPullRequest(pr, org));
-            categories.push(PullRequestItem.fromCategory('Assigned to my teams', items));
+            categories.push(PullRequestItem.fromCategory('Assigned to my teams', items, this.cachedUserId, false));
         }
 
         return categories;

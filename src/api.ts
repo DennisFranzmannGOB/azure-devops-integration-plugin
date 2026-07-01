@@ -956,9 +956,11 @@ export async function getPrIterations(
 }
 
 export async function getPrChanges(
-    org: string, project: string, repoId: string, prId: number, iterationId: number, token: string
+    org: string, project: string, repoId: string, prId: number, iterationId: number, token: string,
+    compareToIterationId?: number,
 ): Promise<PrChange[]> {
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/iterations/${iterationId}/changes?api-version=7.1`;
+    const compareTo = compareToIterationId !== undefined ? `&$compareTo=${compareToIterationId}` : '';
+    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/iterations/${iterationId}/changes?api-version=7.1${compareTo}`;
     const body = await httpsGet(url, authHeaders(token));
     const data = JSON.parse(body);
     return (data.changeEntries ?? []) as PrChange[];

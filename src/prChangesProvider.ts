@@ -389,9 +389,32 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const sourceCommitId = lastIteration.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration.targetRefCommit?.commitId ?? '';
 
-            // Reviewed-files state: reset if iteration changed, then load current set.
+            // Reviewed-files state: if a new iteration arrived, fetch only the files
+            // that changed between the previous and current iteration and remove marks
+            // for those — unchanged files keep their marks (matches ADO web portal behaviour).
             this.currentIterationId = lastIteration.id;
-            this.reviewedStore?.ensureIteration(pr.pullRequestId, lastIteration.id);
+            if (this.reviewedStore) {
+                const storedIterationId = this.reviewedStore.getStoredIterationId(pr.pullRequestId);
+                const isNewIteration = storedIterationId !== undefined && storedIterationId !== lastIteration.id;
+                if (isNewIteration) {
+                    try {
+                        const deltaChanges = await getPrChanges(
+                            org, project, repoId, pr.pullRequestId, lastIteration.id, token, storedIterationId
+                        );
+                        const changedPaths = deltaChanges
+                            .filter(c => c.item?.path)
+                            .map(c => c.item.path);
+                        this.reviewedStore.advanceIteration(pr.pullRequestId, lastIteration.id, changedPaths);
+                    } catch {
+                        // If the delta fetch fails, advance without removing any paths
+                        // rather than silently clearing everything.
+                        this.reviewedStore.advanceIteration(pr.pullRequestId, lastIteration.id, []);
+                    }
+                } else if (storedIterationId === undefined) {
+                    // First load for this PR — record the iteration id with no marks removed.
+                    this.reviewedStore.advanceIteration(pr.pullRequestId, lastIteration.id, []);
+                }
+            }
             const reviewed = this.reviewedStore?.getReviewedFiles(pr.pullRequestId) ?? new Set<string>();
             const hideReviewed = vscode.workspace.getConfiguration('azureDevops').get<boolean>('hideReviewedFiles', false);
 

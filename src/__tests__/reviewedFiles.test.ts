@@ -66,25 +66,47 @@ describe('ReviewedFilesStore', () => {
         });
     });
 
-    describe('ensureIteration', () => {
-        it('keeps marks when iteration has not changed', () => {
+    describe('getStoredIterationId / advanceIteration', () => {
+        it('returns undefined when no marks exist', () => {
             const store = new ReviewedFilesStore(makeMockMemento() as any);
-            store.setReviewed(1, 5, '/src/a.ts', true);
-            store.ensureIteration(1, 5);
-            expect(store.isReviewed(1, '/src/a.ts')).toBe(true);
+            expect(store.getStoredIterationId(1)).toBeUndefined();
         });
 
-        it('clears marks when a new iteration is detected', () => {
+        it('returns stored iterationId after first advanceIteration call', () => {
+            const store = new ReviewedFilesStore(makeMockMemento() as any);
+            store.advanceIteration(1, 5, []);
+            expect(store.getStoredIterationId(1)).toBe(5);
+        });
+
+        it('keeps marks for files NOT in changedPaths when advancing', () => {
             const store = new ReviewedFilesStore(makeMockMemento() as any);
             store.setReviewed(1, 5, '/src/a.ts', true);
-            store.ensureIteration(1, 6); // new iteration
-            expect(store.isReviewed(1, '/src/a.ts')).toBe(false);
+            store.setReviewed(1, 5, '/src/b.ts', true);
+            // New iteration: only b.ts changed
+            store.advanceIteration(1, 6, ['/src/b.ts']);
+            expect(store.isReviewed(1, '/src/a.ts')).toBe(true);  // untouched → kept
+            expect(store.isReviewed(1, '/src/b.ts')).toBe(false); // changed → cleared
+            expect(store.getStoredIterationId(1)).toBe(6);
+        });
+
+        it('clears all marks when all files changed', () => {
+            const store = new ReviewedFilesStore(makeMockMemento() as any);
+            store.setReviewed(1, 5, '/src/a.ts', true);
+            store.setReviewed(1, 5, '/src/b.ts', true);
+            store.advanceIteration(1, 6, ['/src/a.ts', '/src/b.ts']);
             expect(store.getReviewedFiles(1).size).toBe(0);
+        });
+
+        it('keeps all marks when changedPaths is empty (e.g. delta fetch failed)', () => {
+            const store = new ReviewedFilesStore(makeMockMemento() as any);
+            store.setReviewed(1, 5, '/src/a.ts', true);
+            store.advanceIteration(1, 6, []);
+            expect(store.isReviewed(1, '/src/a.ts')).toBe(true);
         });
 
         it('does nothing for a PR with no existing marks', () => {
             const store = new ReviewedFilesStore(makeMockMemento() as any);
-            expect(() => store.ensureIteration(99, 1)).not.toThrow();
+            expect(() => store.advanceIteration(99, 1, [])).not.toThrow();
         });
     });
 

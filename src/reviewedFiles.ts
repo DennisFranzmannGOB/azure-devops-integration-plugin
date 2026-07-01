@@ -36,15 +36,32 @@ export class ReviewedFilesStore {
 
     // --- Iteration management ---
 
-    /** Call at the start of a PR load. Clears all reviewed marks if the iteration has changed. */
-    ensureIteration(prId: number, iterationId: number): void {
+    /** Returns the stored iteration id for a PR, or undefined if no marks exist yet. */
+    getStoredIterationId(prId: number): number | undefined {
+        return this.read()[String(prId)]?.iterationId;
+    }
+
+    /**
+     * Called when a new iteration is detected. Removes marks only for the files
+     * that changed between iterations (same as ADO web portal behaviour), then
+     * updates the stored iteration id.
+     */
+    advanceIteration(prId: number, newIterationId: number, changedPaths: string[]): void {
         const data = this.read();
         const key = String(prId);
         const existing = data[key];
-        if (existing && existing.iterationId !== iterationId) {
-            delete data[key];
-            this.write(data);
+
+        if (!existing) {
+            // No marks yet — just note the new iteration id so we can detect
+            // the next delta; nothing to remove.
+            data[key] = { iterationId: newIterationId, files: [], updatedAt: Date.now() };
+        } else {
+            const changed = new Set(changedPaths);
+            existing.files = existing.files.filter(f => !changed.has(f));
+            existing.iterationId = newIterationId;
+            existing.updatedAt = Date.now();
         }
+        this.write(data);
     }
 
     // --- Query ---
