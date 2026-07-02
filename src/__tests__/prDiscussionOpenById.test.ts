@@ -181,6 +181,7 @@ describe('PrChangesProvider.openThreadById', () => {
         const [, leftUri, rightUri] = (vscode.commands.executeCommand as jest.Mock).mock.calls[0];
         expect(parsePrFileUri(leftUri)?.filePath).toBe('/src/deleted.ts');
         expect(rightUri.authority).toBe('empty');
+        expect(rightUri.path).toBe('/empty');
     });
 
     it('falls back to markdown when file-thread commit context is missing', async () => {

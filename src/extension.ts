@@ -18,7 +18,7 @@ import {
     buildSelectedPrContext,
     sameSelectedPrContext,
 } from './prChangesProvider';
-import { PrContentProvider, buildPrFileUri } from './prContentProvider';
+import { PrContentProvider, buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
 import { PrCommentController } from './prComments';
 import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider';
 import { buildPullRequestThreadUrl } from './prLinks';
@@ -283,11 +283,11 @@ export function activate(context: vscode.ExtensionContext) {
             const filePath = change.item.path;
             if (change.changeType === 'add') {
                 const rightUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.rightCommitId, filePath);
-                const leftUri = vscode.Uri.parse('azuredevops-pr://empty');
+                const leftUri = buildEmptyPrFileUri();
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (added)`);
             } else if (change.changeType === 'delete') {
                 const leftUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.leftCommitId, filePath);
-                const rightUri = vscode.Uri.parse('azuredevops-pr://empty');
+                const rightUri = buildEmptyPrFileUri();
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (deleted)`);
             } else {
                 const originalPath = change.originalPath ?? filePath;
@@ -383,11 +383,11 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (change.changeType === 'add') {
                 const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
-                const leftUri = vscode.Uri.parse('azuredevops-pr://empty');
+                const leftUri = buildEmptyPrFileUri();
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (added)`);
             } else if (change.changeType === 'delete') {
                 const leftUri = buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.targetCommitId, filePath, fileItem.prId, 'left');
-                const rightUri = vscode.Uri.parse('azuredevops-pr://empty');
+                const rightUri = buildEmptyPrFileUri();
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath} (deleted)`);
             } else {
                 const originalPath = change.originalPath ?? filePath;

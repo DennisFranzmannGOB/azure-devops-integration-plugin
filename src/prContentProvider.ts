@@ -3,6 +3,7 @@ import { getFileContent } from './api';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 
 const VIRTUAL_FILE_MTIME = 0;
+const EMPTY_PR_FILE_URI = 'azuredevops-pr://empty/empty';
 
 function buildReadOnlyError(): Error {
     return vscode.FileSystemError.NoPermissions('azuredevops-pr is read-only');
@@ -128,6 +129,13 @@ export class PrContentProvider implements vscode.TextDocumentContentProvider, vs
             token,
         );
     }
+}
+
+export function buildEmptyPrFileUri(): vscode.Uri {
+    // Custom file-system resources must use an absolute path segment. A bare
+    // `azuredevops-pr://empty` URI can be treated by VS Code as a relative
+    // path before our provider is consulted, so use a synthetic absolute file.
+    return vscode.Uri.parse(EMPTY_PR_FILE_URI);
 }
 
 export function buildPrFileUri(

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { buildPrFileUri, parsePrFileUri } from '../prContentProvider';
+import { buildEmptyPrFileUri, buildPrFileUri, parsePrFileUri } from '../prContentProvider';
 
 jest.mock('../auth', () => ({
     getToken: jest.fn().mockResolvedValue('token'),
@@ -35,7 +35,7 @@ describe('PrContentProvider filesystem support', () => {
 
     it('provides file stats for the synthetic empty side', async () => {
         const provider = new PrContentProvider({} as vscode.SecretStorage);
-        const uri = vscode.Uri.parse('azuredevops-pr://empty');
+        const uri = buildEmptyPrFileUri();
 
         await expect(provider.stat(uri)).resolves.toEqual({
             type: vscode.FileType.File,
@@ -43,6 +43,13 @@ describe('PrContentProvider filesystem support', () => {
             mtime: 0,
             size: 0,
         });
+    });
+
+    it('uses an absolute path for the synthetic empty side', () => {
+        const uri = buildEmptyPrFileUri();
+
+        expect(uri.authority).toBe('empty');
+        expect(uri.path).toBe('/empty');
     });
 
     it('reads UTF-8 bytes through the file system provider', async () => {
@@ -145,7 +152,7 @@ describe('parsePrFileUri', () => {
     });
 
     it('returns undefined for empty authority URI', () => {
-        const uri = { scheme: 'azuredevops-pr', authority: 'empty', path: '', query: '' } as any;
+        const uri = buildEmptyPrFileUri();
         expect(parsePrFileUri(uri)).toBeUndefined();
     });
 

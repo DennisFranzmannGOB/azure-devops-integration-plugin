@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrChange, PrThread, replyToThread, addPullRequestComment, searchIdentitiesByDisplayName, ThreadStatus, updateThreadStatus } from './api';
 import { getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
-import { buildPrFileUri } from './prContentProvider';
+import { buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
 import { setCommentContent, buildCommentDocUri, clearCommentContent } from './prCommentDocProvider';
 import { ReviewedFilesStore } from './reviewedFiles';
 
@@ -639,12 +639,12 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             ? buildPrFileUri(
                 item.org, item.project, item.repoId, item.targetCommitId, item.diffPaths.leftFilePath, item.prId, 'left'
             )
-            : vscode.Uri.parse('azuredevops-pr://empty');
+            : buildEmptyPrFileUri();
         const rightUri = item.diffPaths.rightFilePath
             ? buildPrFileUri(
                 item.org, item.project, item.repoId, item.sourceCommitId, item.diffPaths.rightFilePath, item.prId, 'right'
             )
-            : vscode.Uri.parse('azuredevops-pr://empty');
+            : buildEmptyPrFileUri();
 
         try {
             await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label);
