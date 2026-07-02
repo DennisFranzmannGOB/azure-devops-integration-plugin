@@ -796,17 +796,15 @@ export async function getPrThreads(
     iteration?: number,
     baseIteration?: number,
 ): Promise<PrThread[]> {
-    const query = new URLSearchParams({ 'api-version': '7.1' });
-    if (iteration !== undefined) {
-        query.set('iteration', String(iteration));
-    }
-    if (baseIteration !== undefined) {
-        query.set('baseIteration', String(baseIteration));
-    }
-
+    // Azure DevOps uses $iteration / $baseIteration (dollar-sign prefix, same pattern as $compareTo
+    // in getPrChanges). Passing these causes the server to remap thread positions to the requested
+    // iteration instead of returning the original creation-time line numbers.
+    const iterationParam = iteration !== undefined ? `&$iteration=${iteration}` : '';
+    const baseIterationParam = baseIteration !== undefined ? `&$baseIteration=${baseIteration}` : '';
     const url =
         `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}` +
-        `/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?${query.toString()}`;
+        `/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?api-version=7.1` +
+        iterationParam + baseIterationParam;
     const body = await httpsGet(url, authHeaders(token));
     const data = JSON.parse(body);
     return data.value as PrThread[];
