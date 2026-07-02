@@ -788,9 +788,25 @@ export interface PrThread {
 }
 
 export async function getPrThreads(
-    org: string, project: string, repoId: string, prId: number, token: string
+    org: string,
+    project: string,
+    repoId: string,
+    prId: number,
+    token: string,
+    iteration?: number,
+    baseIteration?: number,
 ): Promise<PrThread[]> {
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?api-version=7.1`;
+    const query = new URLSearchParams({ 'api-version': '7.1' });
+    if (iteration !== undefined) {
+        query.set('iteration', String(iteration));
+    }
+    if (baseIteration !== undefined) {
+        query.set('baseIteration', String(baseIteration));
+    }
+
+    const url =
+        `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}` +
+        `/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?${query.toString()}`;
     const body = await httpsGet(url, authHeaders(token));
     const data = JSON.parse(body);
     return data.value as PrThread[];

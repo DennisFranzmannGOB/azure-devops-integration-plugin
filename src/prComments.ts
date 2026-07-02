@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PrThread, getPrThreads, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
+import { PrThread, getPrThreads, getPrIterations, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
@@ -117,7 +117,9 @@ export class PrCommentController implements vscode.Disposable {
             const token = await getToken(this.secretStorage);
             if (!token) { return; }
 
-            const apiThreads = await getPrThreads(org, project, repoId, prId, token);
+            const iterations = await getPrIterations(org, project, repoId, prId, token).catch(() => undefined);
+            const latestIterationId = iterations?.at(-1)?.id;
+            const apiThreads = await getPrThreads(org, project, repoId, prId, token, latestIterationId);
             this.apiData.set(cacheKey, apiThreads);
             this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
         } catch {

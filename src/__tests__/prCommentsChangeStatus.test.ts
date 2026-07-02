@@ -9,6 +9,7 @@ jest.mock('../auth', () => ({
 
 jest.mock('../api', () => ({
     getPrThreads: jest.fn(),
+    getPrIterations: jest.fn(),
     addPullRequestFileComment: jest.fn(),
     replyToThread: jest.fn(),
     searchIdentitiesByDisplayName: jest.fn(),
@@ -17,6 +18,7 @@ jest.mock('../api', () => ({
 
 const api = jest.requireMock('../api') as {
     getPrThreads: jest.Mock;
+    getPrIterations: jest.Mock;
     updateThreadStatus: jest.Mock;
     addPullRequestFileComment: jest.Mock;
     replyToThread: jest.Mock;
@@ -85,6 +87,12 @@ async function setupPlacedThread(status: PrThread['status'] = 'active') {
 
 describe('PrCommentController.changeStatus', () => {
     beforeEach(() => {
+        api.getPrIterations.mockReset();
+        api.getPrIterations.mockResolvedValue([{
+            id: 3,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
         api.getPrThreads.mockReset();
         api.updateThreadStatus.mockReset();
         api.updateThreadStatus.mockResolvedValue(undefined);
@@ -175,10 +183,23 @@ describe('PrCommentController.changeStatus', () => {
 
         expect(mockVsThread.contextValue).toBe('prCommentThread.fixed');
     });
+
+    it('loads threads tracked to the latest PR iteration', async () => {
+        await setupPlacedThread('active');
+
+        expect(api.getPrIterations).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token');
+        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 3);
+    });
 });
 
 describe('PrCommentController review-mode file tracking', () => {
     beforeEach(() => {
+        api.getPrIterations.mockReset();
+        api.getPrIterations.mockResolvedValue([{
+            id: 3,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
         api.getPrThreads.mockReset();
         api.getPrThreads.mockResolvedValue([]);
         auth.getToken.mockReset();
@@ -266,6 +287,12 @@ describe('PrCommentController review-mode file tracking', () => {
 
 describe('PrCommentController.createThread on review-mode files', () => {
     beforeEach(() => {
+        api.getPrIterations.mockReset();
+        api.getPrIterations.mockResolvedValue([{
+            id: 3,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
         api.getPrThreads.mockReset();
         api.getPrThreads.mockResolvedValue([]);
         api.addPullRequestFileComment.mockReset();
@@ -396,6 +423,12 @@ describe('PrCommentController.createThread on review-mode files', () => {
 
 describe('PrCommentController.replyToThread mention handling', () => {
     beforeEach(() => {
+        api.getPrIterations.mockReset();
+        api.getPrIterations.mockResolvedValue([{
+            id: 3,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
         api.getPrThreads.mockReset();
         api.getPrThreads.mockResolvedValue([]);
         api.replyToThread.mockReset();

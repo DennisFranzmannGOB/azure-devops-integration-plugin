@@ -428,7 +428,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const lastIteration = iterations[iterations.length - 1];
             const [changes, threads] = await Promise.all([
                 getPrChanges(org, project, repoId, pr.pullRequestId, lastIteration.id, token),
-                getPrThreads(org, project, repoId, pr.pullRequestId, token),
+                getPrThreads(org, project, repoId, pr.pullRequestId, token, lastIteration.id),
             ]);
 
             const sourceCommitId = lastIteration.sourceRefCommit?.commitId ?? '';
@@ -673,17 +673,17 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         if (!project || !repoId) { return false; }
 
         try {
-            const [threads, iterations] = await Promise.all([
-                getPrThreads(org, project, repoId, pr.pullRequestId, token),
-                getPrIterations(org, project, repoId, pr.pullRequestId, token),
-            ]);
-
+            const iterations = await getPrIterations(org, project, repoId, pr.pullRequestId, token);
             const lastIteration = iterations.at(-1);
+            const trackedIterationId = lastIteration?.id;
             const sourceCommitId = lastIteration?.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration?.targetRefCommit?.commitId ?? '';
-            const changes = lastIteration?.id
-                ? await getPrChanges(org, project, repoId, pr.pullRequestId, lastIteration.id, token)
-                : [];
+            const [threads, changes] = await Promise.all([
+                getPrThreads(org, project, repoId, pr.pullRequestId, token, trackedIterationId),
+                trackedIterationId
+                    ? getPrChanges(org, project, repoId, pr.pullRequestId, trackedIterationId, token)
+                    : Promise.resolve([]),
+            ]);
 
             const visibleThreads = threads
                 .filter((t) =>

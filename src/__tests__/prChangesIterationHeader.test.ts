@@ -113,4 +113,18 @@ describe('PrChangesProvider.onIterationResolved', () => {
 
         expect(emitted).toEqual([5]);
     });
+
+    it('fetches threads tracked to the latest iteration', async () => {
+        api.getPrIterations.mockResolvedValue([
+            { id: 1, sourceRefCommit: { commitId: 'src1' }, targetRefCommit: { commitId: 'tgt1' } },
+            { id: 4, sourceRefCommit: { commitId: 'src4' }, targetRefCommit: { commitId: 'tgt4' } },
+        ]);
+        api.getPrChanges.mockResolvedValue([]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        await provider.getChildren();
+
+        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 4);
+    });
 });
