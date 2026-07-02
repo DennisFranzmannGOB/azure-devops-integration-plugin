@@ -119,6 +119,13 @@ export const window = {
     showQuickPick: jest.fn(),
     showTextDocument: jest.fn(),
     withProgress: jest.fn().mockImplementation(async (_options: unknown, task: () => unknown) => await task()),
+    createTreeView: jest.fn().mockImplementation(() => ({
+        title: '',
+        reveal: jest.fn().mockResolvedValue(undefined),
+        onDidChangeCheckboxState: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+        onDidChangeSelection: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+        dispose: jest.fn(),
+    })),
     createStatusBarItem: jest.fn().mockImplementation(() => ({
         text: '',
         tooltip: '',

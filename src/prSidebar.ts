@@ -3,6 +3,8 @@ import { getOrganization } from './config';
 import { getToken } from './auth';
 import { getMyPullRequests, getUserId, EnrichedPullRequest, MyPullRequests, PolicyCheck, PrThreadSummary, WorkItem } from './api';
 import { buildWorkItemUrl } from './workItem';
+import { getCurrentBranch, getRemoteUrl } from './git';
+import { parseRemoteUrl } from './config';
 
 const WORK_ITEM_TYPE_ICONS: Record<string, string> = {
     'Bug': 'bug',
@@ -84,6 +86,67 @@ export function formatRelativeTime(dateStr: string): string {
 
     const years = Math.floor(months / 12);
     return `${years}y ago`;
+}
+
+function normalizeBranchName(branchOrRef: string | undefined): string {
+    return branchOrRef?.replace(/^refs\/heads\//, '') ?? '';
+}
+
+function normalizeRepositoryName(repositoryName: string | undefined): string {
+    return repositoryName?.trim().toLocaleLowerCase() ?? '';
+}
+
+function flattenPullRequestItems(items: PullRequestItem[]): PullRequestItem[] {
+    const result: PullRequestItem[] = [];
+
+    for (const item of items) {
+        if (item.pr && item.org) {
+            result.push(item);
+        }
+
+        if (item.children?.length) {
+            result.push(...flattenPullRequestItems(item.children));
+        }
+    }
+
+    return result;
+}
+
+export function findMatchingPullRequestItemForBranch(
+    items: PullRequestItem[],
+    currentBranch: string,
+    repositoryName?: string,
+): PullRequestItem | undefined {
+    if (!currentBranch) {
+        return undefined;
+    }
+
+    const normalizedRepositoryName = normalizeRepositoryName(repositoryName);
+    let matches = flattenPullRequestItems(items).filter((item) =>
+        normalizeBranchName(item.pr?.sourceRefName) === currentBranch
+    );
+
+    if (normalizedRepositoryName) {
+        matches = matches.filter((item) =>
+            normalizeRepositoryName(item.pr?.repository?.name) === normalizedRepositoryName
+        );
+    }
+
+    const uniqueMatches = new Map<string, PullRequestItem>();
+    for (const item of matches) {
+        if (!item.pr || !item.org) {
+            continue;
+        }
+
+        const key = `${item.org}:${item.pr.repository?.id ?? ''}:${item.pr.pullRequestId}`;
+        uniqueMatches.set(key, item);
+    }
+
+    if (uniqueMatches.size !== 1) {
+        return undefined;
+    }
+
+    return uniqueMatches.values().next().value;
 }
 
 export class PullRequestItem extends vscode.TreeItem {
@@ -462,6 +525,10 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
     private commentNotificationHandlers?: CommentNotificationHandlers;
     private initialized = false;
     private latestPullRequests = new Map<number, EnrichedPullRequest>();
+    private currentBranchMatchListeners: Array<(item: PullRequestItem) => void> = [];
+    private treeView?: vscode.TreeView<PullRequestItem>;
+    private lastDetectedCurrentBranchMatch?: PullRequestItem;
+    private lastDetectedCurrentBranchMatchKey?: string;
 
     constructor(secretStorage: vscode.SecretStorage) {
         this.secretStorage = secretStorage;
@@ -477,6 +544,49 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
+    }
+
+    onDidDetectCurrentBranchMatch(listener: (item: PullRequestItem) => void): vscode.Disposable {
+        this.currentBranchMatchListeners.push(listener);
+        return {
+            dispose: () => {
+                const index = this.currentBranchMatchListeners.indexOf(listener);
+                if (index >= 0) {
+                    this.currentBranchMatchListeners.splice(index, 1);
+                }
+            },
+        };
+    }
+
+    attachTreeView(treeView: vscode.TreeView<PullRequestItem>): void {
+        this.treeView = treeView;
+    }
+
+    async revealPullRequest(item: PullRequestItem): Promise<void> {
+        if (!this.treeView?.reveal) {
+            return;
+        }
+
+        try {
+            await this.treeView.reveal(item, { select: true, focus: false, expand: 3 });
+        } catch {
+            // Ignore reveal failures if the tree has not fully materialized yet.
+        }
+    }
+
+    replayDetectedCurrentBranchMatch(): void {
+        const match = this.lastDetectedCurrentBranchMatch;
+        if (!match) {
+            return;
+        }
+
+        void Promise.resolve().then(() => this.fireCurrentBranchMatch(match));
+    }
+
+    private fireCurrentBranchMatch(item: PullRequestItem): void {
+        for (const listener of [...this.currentBranchMatchListeners]) {
+            listener(item);
+        }
     }
 
     setFilter(filter: PrFilter): void {
@@ -657,6 +767,46 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         }
     }
 
+    private async getCurrentWorkspaceRepositoryName(): Promise<string | undefined> {
+        const configuredRepository = vscode.workspace
+            .getConfiguration('azureDevops')
+            .get<string>('repository');
+
+        if (configuredRepository?.trim()) {
+            return configuredRepository.trim();
+        }
+
+        const remoteUrl = await getRemoteUrl();
+        return remoteUrl ? parseRemoteUrl(remoteUrl).repository : undefined;
+    }
+
+    private async detectCurrentBranchMatch(categories: PullRequestItem[]): Promise<void> {
+        const currentBranch = await getCurrentBranch();
+        if (!currentBranch || currentBranch === 'HEAD') {
+            this.lastDetectedCurrentBranchMatch = undefined;
+            this.lastDetectedCurrentBranchMatchKey = undefined;
+            return;
+        }
+
+        const repositoryName = await this.getCurrentWorkspaceRepositoryName();
+        const match = findMatchingPullRequestItemForBranch(categories, currentBranch, repositoryName);
+        if (!match?.pr || !match.org) {
+            this.lastDetectedCurrentBranchMatch = undefined;
+            this.lastDetectedCurrentBranchMatchKey = undefined;
+            return;
+        }
+
+        const matchKey = `${match.org}:${match.pr.repository?.id ?? ''}:${match.pr.pullRequestId}:${currentBranch}`;
+        this.lastDetectedCurrentBranchMatch = match;
+
+        if (matchKey === this.lastDetectedCurrentBranchMatchKey) {
+            return;
+        }
+
+        this.lastDetectedCurrentBranchMatchKey = matchKey;
+        void Promise.resolve().then(() => this.fireCurrentBranchMatch(match));
+    }
+
     async pollForNewComments(): Promise<void> {
         const fetched = await this.fetchPullRequests();
         if (!fetched) { return; }
@@ -734,6 +884,8 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
             categories.push(PullRequestItem.fromCategory('Assigned to my teams', items, this.cachedUserId, false));
         }
 
+        await this.detectCurrentBranchMatch(categories);
+
         return categories;
     }
 }
@@ -743,8 +895,11 @@ export function registerPrSidebar(
     secretStorage: vscode.SecretStorage
 ): PullRequestTreeProvider {
     const provider = new PullRequestTreeProvider(secretStorage);
-
-    vscode.window.registerTreeDataProvider('azureDevops.pullRequests', provider);
+    const treeView = vscode.window.createTreeView('azureDevops.pullRequests', {
+        treeDataProvider: provider,
+    });
+    provider.attachTreeView(treeView);
+    context.subscriptions.push(treeView);
 
     // Establish baseline comment counts immediately so the first interval
     // poll can detect changes (the call is fire-and-forget).

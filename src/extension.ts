@@ -194,6 +194,31 @@ export function activate(context: vscode.ExtensionContext) {
         prChangesTree.title = `Changes: #${pr.pullRequestId}`;
     };
 
+    const handleCurrentBranchMatchedPr = async (item: PullRequestItem): Promise<void> => {
+        if (!item.pr || !item.org) {
+            return;
+        }
+
+        const matchedContext = buildSelectedPrContext(item.pr, item.org);
+        const currentSelection = prChangesProvider.getSelectedPrContext();
+        if (currentSelection && !sameSelectedPrContext(currentSelection, matchedContext)) {
+            return;
+        }
+
+        await prProvider.revealPullRequest(item);
+
+        if (!currentSelection) {
+            switchToPr(item.pr, item.org);
+        }
+    };
+
+    context.subscriptions.push(
+        prProvider.onDidDetectCurrentBranchMatch((item) => {
+            void handleCurrentBranchMatchedPr(item);
+        }),
+    );
+    prProvider.replayDetectedCurrentBranchMatch();
+
     prProvider.setCommentNotificationHandlers({
         openComment: async ({ org, pr, thread }) => {
             switchToPr(pr, org);

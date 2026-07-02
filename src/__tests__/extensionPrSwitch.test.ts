@@ -5,6 +5,9 @@ import { EnrichedPullRequest } from '../api';
 const mockPrProvider = {
     refresh: jest.fn(),
     setCommentNotificationHandlers: jest.fn(),
+    revealPullRequest: jest.fn().mockResolvedValue(undefined),
+    replayDetectedCurrentBranchMatch: jest.fn(),
+    onDidDetectCurrentBranchMatch: jest.fn(),
 };
 
 const mockPrChangesProvider = {
@@ -113,12 +116,18 @@ function getRegisteredCommand(commandId: string): (...args: any[]) => any {
 
 describe('extension PR switching cleanup', () => {
     let handlers: { openComment: (event: any) => Promise<void> } | undefined;
+    let branchMatchHandler: ((item: any) => Promise<void> | void) | undefined;
 
     beforeEach(() => {
         jest.clearAllMocks();
         handlers = undefined;
+        branchMatchHandler = undefined;
         mockPrProvider.setCommentNotificationHandlers.mockImplementation((value) => {
             handlers = value;
+        });
+        mockPrProvider.onDidDetectCurrentBranchMatch.mockImplementation((value) => {
+            branchMatchHandler = value;
+            return { dispose: jest.fn() };
         });
         mockPrChangesProvider.selectPr.mockReturnValue(false);
         mockPrChangesProvider.getSelectedPrContext.mockReturnValue(undefined);
@@ -152,6 +161,29 @@ describe('extension PR switching cleanup', () => {
         await reviewPrChanges({ pr: makePr(42, 'repo1'), org: 'org' });
 
         expect(mockPrCommentController.clearAll).not.toHaveBeenCalled();
+    });
+
+    it('auto-selects the current branch PR when nothing is selected yet', async () => {
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue(undefined);
+
+        await branchMatchHandler!({ pr: makePr(42, 'repo1'), org: 'org' });
+
+        expect(mockPrProvider.revealPullRequest).toHaveBeenCalledWith(
+            expect.objectContaining({ pr: expect.objectContaining({ pullRequestId: 42 }), org: 'org' })
+        );
+        expect(mockPrChangesProvider.selectPr).toHaveBeenCalledWith(
+            expect.objectContaining({ pullRequestId: 42 }),
+            'org'
+        );
+    });
+
+    it('does not override a different manually selected PR during branch auto-select', async () => {
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo9', prId: 99 });
+
+        await branchMatchHandler!({ pr: makePr(42, 'repo1'), org: 'org' });
+
+        expect(mockPrProvider.revealPullRequest).not.toHaveBeenCalled();
+        expect(mockPrChangesProvider.selectPr).not.toHaveBeenCalled();
     });
 
     it('clears stale threads before opening a notification comment on another PR', async () => {
