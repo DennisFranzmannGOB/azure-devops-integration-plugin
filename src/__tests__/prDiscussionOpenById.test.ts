@@ -260,6 +260,37 @@ describe('PrChangesProvider.openThreadById', () => {
         expect(vscode.window.showTextDocument).toHaveBeenCalledWith({ uri: 'doc' }, { preview: true });
     });
 
+    it('returns false when the requested thread no longer exists instead of opening a different one', async () => {
+        api.getPrIterations.mockResolvedValue([{
+            id: 1,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
+        api.getPrChanges.mockResolvedValue([]);
+        api.getPrThreads.mockResolvedValue([{
+            id: 11,
+            status: 'active',
+            isDeleted: false,
+            comments: [{
+                id: 1,
+                parentCommentId: 0,
+                content: 'Different thread',
+                author: { displayName: 'Alice', id: 'a1' },
+                publishedDate: '2024-01-15T10:00:00Z',
+                commentType: 'text',
+                isDeleted: false,
+            }],
+        }]);
+
+        const provider = new PrChangesProvider({} as any);
+        const result = await provider.openThreadById(makePr(), 'org', 99);
+
+        expect(result).toBe(false);
+        expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
+        expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+        expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+    });
+
     it('lists general comments before changed files in the root tree', async () => {
         api.getPrIterations.mockResolvedValue([{
             id: 1,

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import { PullRequestItem } from '../prSidebar';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 
-function runGit(command: string, cwd: string): Promise<string> {
+function runGit(args: string[], cwd: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        exec(command, { cwd, encoding: 'utf-8' }, (error, stdout, stderr) => {
+        execFile('git', args, { cwd, encoding: 'utf-8', windowsHide: true }, (error, stdout, stderr) => {
             if (error) {
                 reject(new Error(stderr || error.message));
             } else {
@@ -37,8 +37,8 @@ export async function checkoutPrBranch(item: PullRequestItem): Promise<boolean> 
         await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Notification, title: `Checking out ${branch}...` },
             async () => {
-                await runGit('git fetch origin', cwd);
-                await runGit(`git checkout ${branch}`, cwd);
+                await runGit(['fetch', 'origin'], cwd);
+                await runGit(['checkout', branch], cwd);
             }
         );
         vscode.window.showInformationMessage(`Checked out branch: ${branch}`);

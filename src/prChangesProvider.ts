@@ -697,7 +697,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                     resolveThreadPaths(t, changes),
                 ));
 
-            const target = visibleThreads.find((item) => item.thread.id === threadId) ?? visibleThreads[0];
+            const target = visibleThreads.find((item) => item.thread.id === threadId);
             if (!target) {
                 return false;
             }
