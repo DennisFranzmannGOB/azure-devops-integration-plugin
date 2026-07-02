@@ -1,4 +1,68 @@
+import * as vscode from 'vscode';
 import { buildPrFileUri, parsePrFileUri } from '../prContentProvider';
+
+jest.mock('../auth', () => ({
+    getToken: jest.fn().mockResolvedValue('token'),
+    getAuthenticationRequiredMessage: jest.fn().mockReturnValue('Authentication required'),
+}));
+
+jest.mock('../api', () => ({
+    getFileContent: jest.fn(),
+}));
+
+const { PrContentProvider } = jest.requireActual('../prContentProvider') as typeof import('../prContentProvider');
+const api = jest.requireMock('../api') as {
+    getFileContent: jest.Mock;
+};
+
+describe('PrContentProvider filesystem support', () => {
+    beforeEach(() => {
+        api.getFileContent.mockReset();
+        api.getFileContent.mockResolvedValue('hello from ado');
+    });
+
+    it('provides file stats for PR file URIs', async () => {
+        const provider = new PrContentProvider({} as vscode.SecretStorage);
+        const uri = buildPrFileUri('org', 'proj', 'repo', 'sha', '/src/file.ts', 1, 'right');
+
+        await expect(provider.stat(uri)).resolves.toEqual({
+            type: vscode.FileType.File,
+            ctime: 0,
+            mtime: 0,
+            size: 0,
+        });
+    });
+
+    it('provides file stats for the synthetic empty side', async () => {
+        const provider = new PrContentProvider({} as vscode.SecretStorage);
+        const uri = vscode.Uri.parse('azuredevops-pr://empty');
+
+        await expect(provider.stat(uri)).resolves.toEqual({
+            type: vscode.FileType.File,
+            ctime: 0,
+            mtime: 0,
+            size: 0,
+        });
+    });
+
+    it('reads UTF-8 bytes through the file system provider', async () => {
+        const provider = new PrContentProvider({} as vscode.SecretStorage);
+        const uri = buildPrFileUri('org', 'proj', 'repo', 'sha', '/src/file.ts', 1, 'right');
+
+        const result = await provider.readFile(uri);
+
+        expect(Buffer.from(result).toString('utf8')).toBe('hello from ado');
+        expect(api.getFileContent).toHaveBeenCalledWith('org', 'proj', 'repo', '/src/file.ts', 'sha', 'token');
+    });
+
+    it('rejects writes on the read-only virtual filesystem', async () => {
+        const provider = new PrContentProvider({} as vscode.SecretStorage);
+        const uri = buildPrFileUri('org', 'proj', 'repo', 'sha', '/src/file.ts', 1, 'right');
+
+        await expect(provider.writeFile(uri, Buffer.from('x'), { create: true, overwrite: true }))
+            .rejects.toThrow('azuredevops-pr is read-only');
+    });
+});
 
 describe('buildPrFileUri', () => {
     it('builds a basic URI without prId or side', () => {

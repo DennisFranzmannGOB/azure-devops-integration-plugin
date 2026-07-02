@@ -119,7 +119,7 @@ export class PrCommentController implements vscode.Disposable {
 
             const iterations = await getPrIterations(org, project, repoId, prId, token).catch(() => undefined);
             const latestIterationId = iterations?.at(-1)?.id;
-            const apiThreads = await getPrThreads(org, project, repoId, prId, token, latestIterationId);
+            const apiThreads = await getPrThreads(org, project, repoId, prId, token, latestIterationId, latestIterationId,);
             this.apiData.set(cacheKey, apiThreads);
             this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
         } catch {

@@ -99,11 +99,28 @@ export class EventEmitter<T = void> {
             },
         };
     };
+    dispose() {
+        this.listeners = [];
+    }
 }
 export class TabInputText {
     constructor(public uri: { fsPath: string }) { }
 }
 export enum ProgressLocation { Notification = 15 }
+export enum FileType { File = 0, Directory = 1, SymbolicLink = 64, Unknown = 0 }
+export class FileSystemError extends Error {
+    static FileNotFound(resource?: { toString?: () => string }): FileSystemError {
+        return new FileSystemError(`File not found: ${resource?.toString?.() ?? ''}`.trim());
+    }
+
+    static FileNotADirectory(resource?: { toString?: () => string }): FileSystemError {
+        return new FileSystemError(`File is not a directory: ${resource?.toString?.() ?? ''}`.trim());
+    }
+
+    static NoPermissions(message?: string): FileSystemError {
+        return new FileSystemError(message ?? 'No permissions');
+    }
+}
 export class Disposable {
     constructor(private callOnDispose: () => void) { }
     dispose() { this.callOnDispose(); }
@@ -158,6 +175,8 @@ export const workspace = {
         onDidDelete: jest.fn(),
         dispose: jest.fn(),
     }),
+    registerTextDocumentContentProvider: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+    registerFileSystemProvider: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     getConfiguration: jest.fn().mockReturnValue({
         get: jest.fn().mockImplementation((_key: string, defaultValue?: unknown) => defaultValue),
         update: jest.fn().mockResolvedValue(undefined),

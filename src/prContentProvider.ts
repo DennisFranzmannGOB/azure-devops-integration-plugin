@@ -2,33 +2,131 @@ import * as vscode from 'vscode';
 import { getFileContent } from './api';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 
-export class PrContentProvider implements vscode.TextDocumentContentProvider {
-    private secretStorage: vscode.SecretStorage;
+const VIRTUAL_FILE_MTIME = 0;
+
+function buildReadOnlyError(): Error {
+    return vscode.FileSystemError.NoPermissions('azuredevops-pr is read-only');
+}
+
+export class PrContentProvider implements vscode.TextDocumentContentProvider, vscode.FileSystemProvider {
+    private readonly secretStorage: vscode.SecretStorage;
+    private readonly _onDidChangeFile = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+
+    readonly onDidChangeFile = this._onDidChangeFile.event;
 
     constructor(secretStorage: vscode.SecretStorage) {
         this.secretStorage = secretStorage;
     }
 
     async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+        return this.getVirtualFileContent(uri);
+    }
+
+    watch(_uri: vscode.Uri, _options: { readonly recursive: boolean; readonly excludes: readonly string[] }): vscode.Disposable {
+        return new vscode.Disposable(() => undefined);
+    }
+
+    async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+        if (uri.authority === 'empty') {
+            return {
+                type: vscode.FileType.File,
+                ctime: 0,
+                mtime: VIRTUAL_FILE_MTIME,
+                size: 0,
+            };
+        }
+
+        const parsed = parsePrFileUri(uri);
+        if (parsed) {
+            return {
+                type: vscode.FileType.File,
+                ctime: 0,
+                mtime: VIRTUAL_FILE_MTIME,
+                size: 0,
+            };
+        }
+
+        if (this.isVirtualDirectoryUri(uri)) {
+            return {
+                type: vscode.FileType.Directory,
+                ctime: 0,
+                mtime: VIRTUAL_FILE_MTIME,
+                size: 0,
+            };
+        }
+
+        throw vscode.FileSystemError.FileNotFound(uri);
+    }
+
+    async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+        if (this.isVirtualDirectoryUri(uri)) {
+            return [];
+        }
+
+        throw vscode.FileSystemError.FileNotADirectory(uri);
+    }
+
+    async readFile(uri: vscode.Uri): Promise<Uint8Array> {
+        const content = await this.getVirtualFileContent(uri);
+        return Buffer.from(content, 'utf8');
+    }
+
+    async createDirectory(_uri: vscode.Uri): Promise<void> {
+        throw buildReadOnlyError();
+    }
+
+    async writeFile(
+        _uri: vscode.Uri,
+        _content: Uint8Array,
+        _options: { readonly create: boolean; readonly overwrite: boolean },
+    ): Promise<void> {
+        throw buildReadOnlyError();
+    }
+
+    async delete(_uri: vscode.Uri, _options: { readonly recursive: boolean }): Promise<void> {
+        throw buildReadOnlyError();
+    }
+
+    async rename(
+        _oldUri: vscode.Uri,
+        _newUri: vscode.Uri,
+        _options: { readonly overwrite: boolean },
+    ): Promise<void> {
+        throw buildReadOnlyError();
+    }
+
+    private isVirtualDirectoryUri(uri: vscode.Uri): boolean {
+        if (uri.scheme !== 'azuredevops-pr' || uri.authority === 'empty') {
+            return false;
+        }
+
+        const parts = uri.path.split('/').filter((part) => part.length > 0);
+        return parts.length < 4;
+    }
+
+    private async getVirtualFileContent(uri: vscode.Uri): Promise<string> {
         if (uri.authority === 'empty') {
             return '';
         }
 
-        // URI format: azuredevops-pr://org/project/repoId/commitId/filePath
-        const org = uri.authority;
-        const parts = uri.path.split('/');
-        // parts[0] is empty (leading slash), parts[1] = project, parts[2] = repoId, parts[3] = commitId, rest = filePath
-        const project = decodeURIComponent(parts[1]);
-        const repoId = parts[2];
-        const commitId = parts[3];
-        const filePath = '/' + parts.slice(4).join('/');
+        const parsed = parsePrFileUri(uri);
+        if (!parsed) {
+            throw vscode.FileSystemError.FileNotFound(uri);
+        }
 
         const token = await getToken(this.secretStorage);
         if (!token) {
             throw new Error(getAuthenticationRequiredMessage());
         }
 
-        return await getFileContent(org, project, repoId, filePath, commitId, token);
+        return await getFileContent(
+            parsed.org,
+            parsed.project,
+            parsed.repoId,
+            parsed.filePath,
+            parsed.commitId,
+            token,
+        );
     }
 }
 

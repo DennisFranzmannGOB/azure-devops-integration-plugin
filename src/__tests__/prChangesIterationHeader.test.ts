@@ -125,6 +125,6 @@ describe('PrChangesProvider.onIterationResolved', () => {
         provider.selectPr(makePr(), 'org');
         await provider.getChildren();
 
-        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 4);
+        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 4, 4);
     });
 });

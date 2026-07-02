@@ -92,7 +92,7 @@ describe('PrChangesProvider.openThreadById', () => {
             expect.anything(),
             '/src/app.ts'
         );
-        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 1);
+        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 1, 1);
 
         const [, leftUri, rightUri] = (vscode.commands.executeCommand as jest.Mock).mock.calls[0];
         expect(parsePrFileUri(leftUri)?.filePath).toBe('/src/app.ts');

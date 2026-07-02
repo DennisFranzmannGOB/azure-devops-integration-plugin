@@ -428,7 +428,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const lastIteration = iterations[iterations.length - 1];
             const [changes, threads] = await Promise.all([
                 getPrChanges(org, project, repoId, pr.pullRequestId, lastIteration.id, token),
-                getPrThreads(org, project, repoId, pr.pullRequestId, token, lastIteration.id),
+                getPrThreads(org, project, repoId, pr.pullRequestId, token, lastIteration.id, lastIteration.id),
             ]);
 
             const sourceCommitId = lastIteration.sourceRefCommit?.commitId ?? '';
@@ -679,7 +679,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const sourceCommitId = lastIteration?.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration?.targetRefCommit?.commitId ?? '';
             const [threads, changes] = await Promise.all([
-                getPrThreads(org, project, repoId, pr.pullRequestId, token, trackedIterationId),
+                getPrThreads(org, project, repoId, pr.pullRequestId, token, trackedIterationId, trackedIterationId),
                 trackedIterationId
                     ? getPrChanges(org, project, repoId, pr.pullRequestId, trackedIterationId, token)
                     : Promise.resolve([]),

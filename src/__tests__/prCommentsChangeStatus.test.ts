@@ -188,7 +188,7 @@ describe('PrCommentController.changeStatus', () => {
         await setupPlacedThread('active');
 
         expect(api.getPrIterations).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token');
-        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 3);
+        expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 3, 3);
     });
 });
 

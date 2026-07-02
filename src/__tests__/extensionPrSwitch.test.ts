@@ -137,6 +137,7 @@ describe('extension PR switching cleanup', () => {
         (vscode.window as any).createTreeView = jest.fn().mockReturnValue({ title: 'PR Changes', dispose: jest.fn(), onDidChangeCheckboxState: jest.fn().mockReturnValue({ dispose: jest.fn() }) });
         (vscode.window as any).onDidChangeActiveTextEditor = jest.fn().mockReturnValue({ dispose: jest.fn() });
         (vscode.workspace as any).registerTextDocumentContentProvider = jest.fn().mockReturnValue({ dispose: jest.fn() });
+        (vscode.workspace as any).registerFileSystemProvider = jest.fn().mockReturnValue({ dispose: jest.fn() });
         (vscode.workspace as any).textDocuments = [];
         (vscode.commands.executeCommand as jest.Mock).mockReset();
         (vscode.commands.registerCommand as jest.Mock).mockClear();

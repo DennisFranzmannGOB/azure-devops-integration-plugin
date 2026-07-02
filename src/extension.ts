@@ -141,7 +141,11 @@ export function activate(context: vscode.ExtensionContext) {
     // PR content provider for diff viewing (Phase 2)
     const prContentProvider = new PrContentProvider(secretStorage);
     context.subscriptions.push(
-        vscode.workspace.registerTextDocumentContentProvider('azuredevops-pr', prContentProvider)
+        vscode.workspace.registerTextDocumentContentProvider('azuredevops-pr', prContentProvider),
+        vscode.workspace.registerFileSystemProvider('azuredevops-pr', prContentProvider, {
+            isReadonly: true,
+            isCaseSensitive: true,
+        })
     );
 
     // PR comment content provider — shows full discussion threads as markdown
