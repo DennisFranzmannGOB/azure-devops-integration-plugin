@@ -539,15 +539,15 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
     // --- Discussion actions (ported from PrDiscussionProvider) ---
 
-    async replyToDiscussionThread(item: PrCommentThreadItem): Promise<void> {
+    async replyToDiscussionThread(item: PrCommentThreadItem): Promise<boolean> {
         const token = await getToken(this.secretStorage);
-        if (!token || !this.selectedPr || !this.selectedOrg) { return; }
+        if (!token || !this.selectedPr || !this.selectedOrg) { return false; }
 
         const content = await vscode.window.showInputBox({
             prompt: 'Reply to this thread',
             placeHolder: 'Type your reply\u2026',
         });
-        if (!content) { return; }
+        if (!content) { return false; }
 
         const pr = this.selectedPr;
         const org = this.selectedOrg;
@@ -561,9 +561,11 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             );
             await replyToThread(org, project, repoId, pr.pullRequestId, item.thread.id, preparedContent, token);
             this.refresh();
+            return true;
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to reply: ${msg}`);
+            return false;
         }
     }
 

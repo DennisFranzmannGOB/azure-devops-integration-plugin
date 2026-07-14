@@ -322,6 +322,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.openDiscussionComment', async (item: PrCommentThreadItem) => {
             try {
                 await prChangesProvider.openComment(item);
+                await prCommentController.refreshAll();
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 safeShowErrorMessage(`Failed to open discussion comment: ${message}`);
@@ -331,8 +332,11 @@ export function activate(context: vscode.ExtensionContext) {
             const url = buildPullRequestThreadUrl(item.org, item.project, item.repoName, item.prId, item.thread.id);
             await vscode.env.openExternal(vscode.Uri.parse(url));
         }),
-        vscode.commands.registerCommand('azureDevops.replyToDiscussionThread', (item: PrCommentThreadItem) => {
-            return prChangesProvider.replyToDiscussionThread(item);
+        vscode.commands.registerCommand('azureDevops.replyToDiscussionThread', async (item: PrCommentThreadItem) => {
+            const replied = await prChangesProvider.replyToDiscussionThread(item);
+            if (replied) {
+                await prCommentController.refreshAll();
+            }
         }),
         vscode.commands.registerCommand('azureDevops.resolveThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.changeThreadStatus(item, 'fixed').then(() => prCommentController.refreshAll());
@@ -404,6 +408,10 @@ export function activate(context: vscode.ExtensionContext) {
                     fileItem.prId, filePath,
                 );
             }
+
+            // A diff can reuse an already-open document. Reload thread data so it
+            // includes replies added since this PR was last opened.
+            await prCommentController.refreshAll();
         }),
     );
 

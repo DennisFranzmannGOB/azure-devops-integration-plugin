@@ -49,6 +49,25 @@ function makeThread(overrides: Partial<PrThread> = {}): PrThread {
     };
 }
 
+function makeThreadWithReply(): PrThread {
+    return makeThread({
+        comments: [
+            {
+                id: 1, parentCommentId: 0, content: 'Fix this',
+                author: { displayName: 'Alice', id: 'a1' },
+                publishedDate: '2024-01-15T10:00:00Z',
+                commentType: 'text', isDeleted: false,
+            },
+            {
+                id: 2, parentCommentId: 1, content: 'Fixed in the next commit',
+                author: { displayName: 'Bob', id: 'b1' },
+                publishedDate: '2024-01-15T11:00:00Z',
+                commentType: 'text', isDeleted: false,
+            },
+        ],
+    });
+}
+
 /** Build a controller whose createCommentThread returns a specific mock thread object. */
 function buildController(mockVsThread: Record<string, unknown>): PrCommentController {
     const mockController = {
@@ -189,6 +208,62 @@ describe('PrCommentController.changeStatus', () => {
 
         expect(api.getPrIterations).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token');
         expect(api.getPrThreads).toHaveBeenCalledWith('org', 'proj', 'repo1', 42, 'token', 3, 3);
+    });
+
+    it('renders the original comment and every reply in an inline thread', async () => {
+        const mockVsThread = {
+            uri: undefined as unknown,
+            range: undefined as unknown,
+            comments: [] as unknown[],
+            canReply: false,
+            label: undefined as string | undefined,
+            collapsibleState: 1,
+            contextValue: undefined as string | undefined,
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        const docUri = vscode.Uri.parse(
+            'azuredevops-pr://org/proj/repo1/src123/src/app.ts?prId=42&side=right'
+        );
+        (vscode.workspace as any).textDocuments = [{ uri: docUri }];
+        api.getPrThreads.mockResolvedValue([makeThreadWithReply()]);
+
+        await controller.loadThreads('org', 'proj', 'repo1', 42);
+
+        const innerController = (vscode.comments.createCommentController as jest.Mock).mock.results.at(-1)?.value;
+        const [, , comments] = innerController.createCommentThread.mock.calls[0];
+        expect(comments).toHaveLength(2);
+        expect(comments.map((comment: vscode.Comment) => (comment.body as vscode.MarkdownString).value)).toEqual([
+            'Fix this',
+            'Fixed in the next commit',
+        ]);
+    });
+
+    it('refreshes an inline thread with replies added after its first load', async () => {
+        const mockVsThread = {
+            uri: undefined as unknown,
+            range: undefined as unknown,
+            comments: [] as unknown[],
+            canReply: false,
+            label: undefined as string | undefined,
+            collapsibleState: 1,
+            contextValue: undefined as string | undefined,
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        const docUri = vscode.Uri.parse(
+            'azuredevops-pr://org/proj/repo1/src123/src/app.ts?prId=42&side=right'
+        );
+        (vscode.workspace as any).textDocuments = [{ uri: docUri }];
+        api.getPrThreads.mockResolvedValueOnce([makeThread()]).mockResolvedValueOnce([makeThreadWithReply()]);
+
+        await controller.loadThreads('org', 'proj', 'repo1', 42);
+        await controller.refreshAll();
+
+        const innerController = (vscode.comments.createCommentController as jest.Mock).mock.results.at(-1)?.value;
+        const [, , refreshedComments] = innerController.createCommentThread.mock.calls[1];
+        expect(refreshedComments).toHaveLength(2);
+        expect(mockVsThread.dispose).toHaveBeenCalledTimes(1);
     });
 });
 

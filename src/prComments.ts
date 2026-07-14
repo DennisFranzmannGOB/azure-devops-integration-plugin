@@ -27,6 +27,7 @@ export class PrCommentController implements vscode.Disposable {
     private readonly apiData = new Map<string, PrThread[]>();
     private readonly loadingKeys = new Set<string>();
     private readonly placedThreadIds = new Set<string>();
+    private loadGeneration = 0;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly threadMeta = new WeakMap<vscode.CommentThread, ThreadMeta>();
     private readonly reviewModeFiles = new Map<string, ReviewModeFileContext>();
@@ -112,6 +113,7 @@ export class PrCommentController implements vscode.Disposable {
             return;
         }
         this.loadingKeys.add(cacheKey);
+        const loadGeneration = this.loadGeneration;
 
         try {
             const token = await getToken(this.secretStorage);
@@ -120,12 +122,15 @@ export class PrCommentController implements vscode.Disposable {
             const iterations = await getPrIterations(org, project, repoId, prId, token).catch(() => undefined);
             const latestIterationId = iterations?.at(-1)?.id;
             const apiThreads = await getPrThreads(org, project, repoId, prId, token, latestIterationId, latestIterationId,);
+            if (loadGeneration !== this.loadGeneration) { return; }
             this.apiData.set(cacheKey, apiThreads);
             this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
         } catch {
             // silently fail
         } finally {
-            this.loadingKeys.delete(cacheKey);
+            if (loadGeneration === this.loadGeneration) {
+                this.loadingKeys.delete(cacheKey);
+            }
         }
     }
 
@@ -348,22 +353,49 @@ export class PrCommentController implements vscode.Disposable {
     }
 
     async refreshAll(): Promise<void> {
-        // Preserve review-mode registrations: clearAll drops them, but they belong
-        // to diff editors that are still open and need comments/gutter to keep working.
-        const savedReviewModeFiles = new Map(this.reviewModeFiles);
+        // Preserve registrations for open review-mode documents. Refreshing must wait
+        // for current threads to be recreated so replies posted from PR Changes are
+        // visible immediately in the corresponding inline thread.
+        const savedReviewModeFiles = [...this.reviewModeFiles.entries()].filter(([uriString]) =>
+            vscode.workspace.textDocuments.some((doc) => doc.uri.toString() === uriString)
+        );
         this.clearAll();
-        this.loadExisting();
-        for (const [uriString, ctx] of savedReviewModeFiles) {
-            const stillOpen = vscode.workspace.textDocuments.some(d => d.uri.toString() === uriString);
-            if (stillOpen) {
-                await this.registerReviewModeFile(
-                    vscode.Uri.parse(uriString), ctx.org, ctx.project, ctx.repoId, ctx.prId, ctx.filePath
-                );
+
+        for (const [uriString, context] of savedReviewModeFiles) {
+            this.reviewModeFiles.set(uriString, context);
+        }
+        this.controller.commentingRangeProvider = this.controller.commentingRangeProvider;
+
+        const contexts = new Map<string, ReviewModeFileContext>();
+        for (const doc of vscode.workspace.textDocuments) {
+            const parsed = parsePrFileUri(doc.uri);
+            if (parsed?.prId) {
+                const cacheKey = `${parsed.org}/${parsed.project}/${parsed.repoId}/${parsed.prId}`;
+                contexts.set(cacheKey, {
+                    org: parsed.org,
+                    project: parsed.project,
+                    repoId: parsed.repoId,
+                    prId: parsed.prId,
+                    filePath: parsed.filePath,
+                });
+                continue;
+            }
+
+            const reviewModeContext = this.reviewModeFiles.get(doc.uri.toString());
+            if (reviewModeContext) {
+                const cacheKey = `${reviewModeContext.org}/${reviewModeContext.project}/${reviewModeContext.repoId}/${reviewModeContext.prId}`;
+                contexts.set(cacheKey, reviewModeContext);
             }
         }
+
+        await Promise.all([...contexts.values()].map((context) =>
+            this.loadThreads(context.org, context.project, context.repoId, context.prId)
+        ));
     }
 
     clearAll(): void {
+        this.loadGeneration++;
+        this.loadingKeys.clear();
         for (const threads of this.vsThreads.values()) {
             for (const t of threads) { t.dispose(); }
         }

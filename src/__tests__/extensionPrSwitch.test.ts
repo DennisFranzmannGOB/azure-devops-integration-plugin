@@ -68,6 +68,7 @@ jest.mock('../commands/editPrDescription', () => ({ editExistingPrDescription: j
 jest.mock('../prContentProvider', () => ({
     PrContentProvider: jest.fn().mockImplementation(() => ({})),
     buildPrFileUri: jest.fn(() => 'azuredevops-pr://org/proj/repo/commit/path'),
+    buildEmptyPrFileUri: jest.fn(() => 'azuredevops-pr://empty/empty'),
 }));
 jest.mock('../prComments', () => ({
     PrCommentController: jest.fn().mockImplementation(() => mockPrCommentController),
@@ -197,6 +198,63 @@ describe('extension PR switching cleanup', () => {
         expect(mockPrCommentController.clearAll.mock.invocationCallOrder[0]).toBeLessThan(
             mockPrChangesProvider.openThreadById.mock.invocationCallOrder[0]
         );
+    });
+
+    it('reloads inline comments after opening a file-backed discussion from the tree', async () => {
+        const openDiscussionComment = getRegisteredCommand('azureDevops.openDiscussionComment');
+        const item = { thread: { id: 123 } };
+
+        await openDiscussionComment(item);
+
+        expect(mockPrChangesProvider.openComment).toHaveBeenCalledWith(item);
+        expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
+        expect(mockPrChangesProvider.openComment.mock.invocationCallOrder[0]).toBeLessThan(
+            mockPrCommentController.refreshAll.mock.invocationCallOrder[0]
+        );
+    });
+
+    it('reloads inline comments after replying from the discussion tree', async () => {
+        const replyToDiscussionThread = getRegisteredCommand('azureDevops.replyToDiscussionThread');
+        const item = { thread: { id: 123 } };
+        mockPrChangesProvider.replyToDiscussionThread.mockResolvedValue(true);
+
+        await replyToDiscussionThread(item);
+
+        expect(mockPrChangesProvider.replyToDiscussionThread).toHaveBeenCalledWith(item);
+        expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not reload inline comments when posting a discussion reply fails or is cancelled', async () => {
+        const replyToDiscussionThread = getRegisteredCommand('azureDevops.replyToDiscussionThread');
+        mockPrChangesProvider.replyToDiscussionThread.mockResolvedValue(false);
+
+        await replyToDiscussionThread({ thread: { id: 123 } });
+
+        expect(mockPrCommentController.refreshAll).not.toHaveBeenCalled();
+    });
+
+    it('reloads inline comments whenever a PR file diff opens', async () => {
+        const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
+        const fileItem = {
+            change: { changeType: 'edit', item: { path: '/src/app.ts' } },
+            sourceBranch: 'feature/example',
+            org: 'org',
+            project: 'proj',
+            repoId: 'repo1',
+            sourceCommitId: 'source',
+            targetCommitId: 'target',
+            prId: 42,
+        };
+
+        await openPrFileDiff(fileItem);
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.diff',
+            expect.anything(),
+            expect.anything(),
+            '/src/app.ts',
+        );
+        expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
     });
 
     it('clears review state after checking out a different PR branch', async () => {
