@@ -548,6 +548,11 @@ async function getChecks(
         const checks: PolicyCheck[] = evaluations
             .filter((e) =>
                 e.configuration.isEnabled &&
+                // Azure DevOps presents only blocking policies in the PR's
+                // Required checks overview. Optional evaluations can have
+                // their own failures, but must not inflate this sidebar's
+                // required-check count or failure summary.
+                e.configuration.isBlocking &&
                 !e.configuration.isDeleted &&
                 !EXCLUDED_POLICY_TYPE_IDS.has(normalizeGuid(e.configuration.type?.id ?? '')))
             .map((e) => {
