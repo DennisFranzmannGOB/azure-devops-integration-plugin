@@ -165,15 +165,16 @@ export class PullRequestItem extends vscode.TreeItem {
 
     /** Group prItems by repo, adding a repo sub-level only when there are multiple repos. */
     private static buildRepoChildren(prItems: PullRequestItem[]): PullRequestItem[] {
-        const repoGroups = new Map<string, PullRequestItem[]>();
+        const repoGroups = new Map<string, { name: string; items: PullRequestItem[] }>();
         for (const prItem of prItems) {
             const repoName = prItem.pr?.repository?.name ?? 'Unknown';
-            let group = repoGroups.get(repoName);
+            const repoId = prItem.pr?.repository?.id ?? repoName;
+            let group = repoGroups.get(repoId);
             if (!group) {
-                group = [];
-                repoGroups.set(repoName, group);
+                group = { name: repoName, items: [] };
+                repoGroups.set(repoId, group);
             }
-            group.push(prItem);
+            group.items.push(prItem);
         }
 
         if (repoGroups.size === 1) {
@@ -181,9 +182,9 @@ export class PullRequestItem extends vscode.TreeItem {
         }
 
         const result: PullRequestItem[] = [];
-        for (const [repoName, items] of repoGroups) {
+        for (const { name, items } of repoGroups.values()) {
             const repoItem = new PullRequestItem(
-                `${repoName} (${items.length})`,
+                `${name} (${items.length})`,
                 vscode.TreeItemCollapsibleState.Expanded,
                 items
             );

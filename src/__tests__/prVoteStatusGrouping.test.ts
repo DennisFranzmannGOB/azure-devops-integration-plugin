@@ -284,10 +284,10 @@ describe('fromCategory — creator vote-status sub-groups', () => {
 describe('fromCategory — repo sub-grouping inside vote-status groups', () => {
     const userId = 'user1';
 
-    function makeItemForRepo(repoName: string, vote: number, prId: number): PullRequestItem {
+    function makeItemForRepo(repoName: string, vote: number, prId: number, repoId = repoName): PullRequestItem {
         const pr = makePr({
             pullRequestId: prId,
-            repository: { id: repoName, name: repoName, project: { id: 'proj1', name: 'proj' } },
+            repository: { id: repoId, name: repoName, project: { id: 'proj1', name: 'proj' } },
             reviewers: [{ displayName: 'User', id: userId, vote }],
         });
         return PullRequestItem.fromPullRequest(pr, 'org');
@@ -310,6 +310,18 @@ describe('fromCategory — repo sub-grouping inside vote-status groups', () => {
         expect(statusGroup.children).toHaveLength(2);
         const repoLabels = statusGroup.children!.map((c) => c.label as string).sort();
         expect(repoLabels).toEqual(['RepoA (2)', 'RepoB (1)']);
+    });
+
+    it('keeps repositories with the same name but different IDs in separate groups', () => {
+        const items = [
+            makeItemForRepo('Shared repo', 0, 1, 'repo-id-one'),
+            makeItemForRepo('Shared repo', 0, 2, 'repo-id-two'),
+        ];
+        const category = PullRequestItem.fromCategory('Assigned to me', items, userId, false);
+        const statusGroup = category.children![0];
+
+        expect(statusGroup.children).toHaveLength(2);
+        expect(statusGroup.children!.every((child) => child.contextValue !== 'pullRequest')).toBe(true);
     });
 
     it('does not add repo sub-group when all PRs in a status group are from one repo', () => {
