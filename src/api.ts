@@ -1,4 +1,5 @@
 import * as https from 'https';
+import { IncomingHttpHeaders } from 'http';
 import { getConfiguredAuthMethod, getResolvedAuthMethodForToken } from './auth';
 
 export interface PullRequest {
@@ -37,7 +38,28 @@ export interface PrChange {
     originalPath?: string;
 }
 
-function httpsGet(url: string, headers: Record<string, string>): Promise<string> {
+interface HttpGetResponse {
+    body: string;
+    headers: IncomingHttpHeaders;
+}
+
+const REQUEST_TIMEOUT_MS = 15_000;
+
+function configureRequestTimeout(
+    request: {
+        destroy?: (error?: Error) => void;
+        setTimeout?: (milliseconds: number, listener: () => void) => unknown;
+    },
+    reject: (error: Error) => void,
+): void {
+    request.setTimeout?.(REQUEST_TIMEOUT_MS, () => {
+        const error = new Error('Request timed out after 15 seconds.');
+        request.destroy?.(error);
+        reject(error);
+    });
+}
+
+function httpsGetResponse(url: string, headers: Record<string, string>): Promise<HttpGetResponse> {
     return new Promise((resolve, reject) => {
         const req = https.get(url, { headers }, (res) => {
             let data = '';
@@ -46,14 +68,19 @@ function httpsGet(url: string, headers: Record<string, string>): Promise<string>
             });
             res.on('end', () => {
                 if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(data);
+                    resolve({ body: data, headers: res.headers });
                 } else {
                     reject(new Error(`HTTP ${res.statusCode}: ${data}`));
                 }
             });
         });
         req.on('error', reject);
+        configureRequestTimeout(req, reject);
     });
+}
+
+async function httpsGet(url: string, headers: Record<string, string>): Promise<string> {
+    return (await httpsGetResponse(url, headers)).body;
 }
 
 function httpsRequest(url: string, method: string, headers: Record<string, string>, body?: unknown): Promise<string> {
@@ -80,6 +107,7 @@ function httpsRequest(url: string, method: string, headers: Record<string, strin
             });
         });
         req.on('error', reject);
+        configureRequestTimeout(req, reject);
         if (body) { req.write(JSON.stringify(body)); }
         req.end();
     });
@@ -89,6 +117,28 @@ export interface MyPullRequests {
     createdByMe: EnrichedPullRequest[];
     assignedToMe: EnrichedPullRequest[];
     assignedToMyTeams: EnrichedPullRequest[];
+}
+
+const MAX_CONCURRENT_PULL_REQUEST_REQUESTS = 4;
+
+async function mapWithConcurrency<T, R>(
+    values: T[],
+    maximumConcurrency: number,
+    mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+    const results = new Array<R>(values.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(maximumConcurrency, values.length);
+
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex++;
+            results[index] = await mapper(values[index]);
+        }
+    });
+
+    await Promise.all(workers);
+    return results;
 }
 
 export function authHeaders(token: string): Record<string, string> {
@@ -265,9 +315,21 @@ async function fetchPullRequests(
         `https://dev.azure.com/${encodeURIComponent(org)}` +
         `/_apis/git/pullrequests?${searchParams}&searchCriteria.status=active&api-version=7.1`;
 
-    const body = await httpsGet(url, authHeaders(token));
-    const response = JSON.parse(body);
-    return response.value as PullRequest[];
+    const pullRequests: PullRequest[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+        const pageUrl = continuationToken
+            ? `${url}&continuationToken=${encodeURIComponent(continuationToken)}`
+            : url;
+        const response = await httpsGetResponse(pageUrl, authHeaders(token));
+        const page = JSON.parse(response.body);
+        pullRequests.push(...(page.value as PullRequest[]));
+        const header = response.headers?.['x-ms-continuationtoken'];
+        continuationToken = Array.isArray(header) ? header[0] : header;
+    } while (continuationToken);
+
+    return pullRequests;
 }
 
 async function getMyTeamIds(org: string, token: string): Promise<string[]> {
@@ -609,13 +671,11 @@ async function getChecks(
     }
 }
 
-async function enrichPullRequests(
+async function enrichPullRequest(
     org: string,
-    prs: PullRequest[],
+    pr: PullRequest,
     token: string
-): Promise<EnrichedPullRequest[]> {
-    return Promise.all(
-        prs.map(async (pr) => {
+): Promise<EnrichedPullRequest> {
             const project = pr.repository?.project?.name ?? '';
             const projectId = pr.repository?.project?.id ?? '';
             const repoId = pr.repository?.id ?? '';
@@ -658,8 +718,10 @@ async function enrichPullRequests(
                 checks,
                 workItems,
             };
-        })
-    );
+}
+
+function pullRequestKey(pr: PullRequest): string {
+    return `${pr.repository?.id ?? ''}:${pr.pullRequestId}`;
 }
 
 export async function getMyPullRequests(
@@ -671,38 +733,50 @@ export async function getMyPullRequests(
         getMyTeamIds(org, token),
     ]);
 
-    // Fetch all three categories in parallel
-    const teamPrPromises = teamIds.map((teamId) =>
-        fetchPullRequests(org, token, `searchCriteria.reviewerId=${teamId}`)
+    const teamPullRequests = mapWithConcurrency(
+        teamIds,
+        MAX_CONCURRENT_PULL_REQUEST_REQUESTS,
+        async (teamId) => {
+            try {
+                return await fetchPullRequests(org, token, `searchCriteria.reviewerId=${teamId}`);
+            } catch {
+                return [];
+            }
+        },
     );
 
-    const [createdByMe, assignedToMe, ...teamPrArrays] = await Promise.all([
+    const [createdByMe, assignedToMe, teamPrArrays] = await Promise.all([
         fetchPullRequests(org, token, `searchCriteria.creatorId=${userId}`),
         fetchPullRequests(org, token, `searchCriteria.reviewerId=${userId}`),
-        ...teamPrPromises,
+        teamPullRequests,
     ]);
 
     // Deduplicate team PRs against the other two lists
     const seenIds = new Set([
-        ...createdByMe.map((pr) => pr.pullRequestId),
-        ...assignedToMe.map((pr) => pr.pullRequestId),
+        ...createdByMe.map(pullRequestKey),
+        ...assignedToMe.map(pullRequestKey),
     ]);
-    const teamPrsMap = new Map<number, PullRequest>();
+    const teamPrsMap = new Map<string, PullRequest>();
     for (const prs of teamPrArrays) {
         for (const pr of prs) {
-            if (!seenIds.has(pr.pullRequestId)) {
-                teamPrsMap.set(pr.pullRequestId, pr);
+            const key = pullRequestKey(pr);
+            if (!seenIds.has(key)) {
+                teamPrsMap.set(key, pr);
             }
         }
     }
     const assignedToMyTeams = [...teamPrsMap.values()];
 
-    // Enrich all PRs with comments and checks in parallel
-    const [enrichedCreated, enrichedAssigned, enrichedTeams] = await Promise.all([
-        enrichPullRequests(org, createdByMe, token),
-        enrichPullRequests(org, assignedToMe, token),
-        enrichPullRequests(org, assignedToMyTeams, token),
-    ]);
+    const enrichedPullRequests = await mapWithConcurrency(
+        [...createdByMe, ...assignedToMe, ...assignedToMyTeams],
+        MAX_CONCURRENT_PULL_REQUEST_REQUESTS,
+        (pr) => enrichPullRequest(org, pr, token),
+    );
+    const assignedStart = createdByMe.length;
+    const teamsStart = assignedStart + assignedToMe.length;
+    const enrichedCreated = enrichedPullRequests.slice(0, assignedStart);
+    const enrichedAssigned = enrichedPullRequests.slice(assignedStart, teamsStart);
+    const enrichedTeams = enrichedPullRequests.slice(teamsStart);
 
     return {
         createdByMe: enrichedCreated,
