@@ -529,6 +529,7 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
     private treeView?: vscode.TreeView<PullRequestItem>;
     private lastDetectedCurrentBranchMatch?: PullRequestItem;
     private lastDetectedCurrentBranchMatchKey?: string;
+    private activePoll?: Promise<void>;
 
     constructor(secretStorage: vscode.SecretStorage) {
         this.secretStorage = secretStorage;
@@ -807,7 +808,27 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         void Promise.resolve().then(() => this.fireCurrentBranchMatch(match));
     }
 
-    async pollForNewComments(): Promise<void> {
+    pollForNewComments(): Promise<void> {
+        if (this.activePoll) {
+            return this.activePoll;
+        }
+
+        const poll = this.pollForNewCommentsOnce();
+        this.activePoll = poll;
+        void poll.then(
+            () => this.clearActivePoll(poll),
+            () => this.clearActivePoll(poll),
+        );
+        return poll;
+    }
+
+    private clearActivePoll(poll: Promise<void>): void {
+        if (this.activePoll === poll) {
+            this.activePoll = undefined;
+        }
+    }
+
+    private async pollForNewCommentsOnce(): Promise<void> {
         const fetched = await this.fetchPullRequests();
         if (!fetched) { return; }
 
