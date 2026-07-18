@@ -55,6 +55,14 @@ class FakeComments {
     }
 }
 
+class FakeTranscripts {
+    clearCount = 0;
+
+    clear(): void {
+        this.clearCount++;
+    }
+}
+
 class FakeUpdates {
     selected?: SelectedPrContext;
     refreshCount = 0;
@@ -88,12 +96,14 @@ class FakeView {
 function createSession() {
     const changes = new FakeChanges();
     const comments = new FakeComments();
+    const transcripts = new FakeTranscripts();
     const updates = new FakeUpdates();
     const view = new FakeView();
     return {
-        session: new ReviewSession(changes, comments, updates, view),
+        session: new ReviewSession(changes, comments, updates, view, transcripts),
         changes,
         comments,
+        transcripts,
         updates,
         view,
     };
@@ -112,13 +122,14 @@ describe('ReviewSession', () => {
     });
 
     it('replaces inline comment state when selecting a different PR', async () => {
-        const { session, comments, changes } = createSession();
+        const { session, comments, transcripts, changes } = createSession();
         await session.select(makePr(42), 'org');
 
         await session.select(makePr(99), 'org');
 
         expect(changes.selected).toEqual({ org: 'org', repoId: 'repo1', prId: 99 });
         expect(comments.clearCount).toBe(1);
+        expect(transcripts.clearCount).toBe(1);
     });
 
     it('keeps inline comment state when selecting the active PR again', async () => {
@@ -143,13 +154,14 @@ describe('ReviewSession', () => {
     });
 
     it('clears every review surface', () => {
-        const { session, changes, comments, updates, view } = createSession();
+        const { session, changes, comments, transcripts, updates, view } = createSession();
 
         session.clear();
 
         expect(changes.selected).toBeUndefined();
         expect(updates.selected).toBeUndefined();
         expect(comments.clearCount).toBe(1);
+        expect(transcripts.clearCount).toBe(1);
         expect(view.title).toBe('PR Changes');
     });
 

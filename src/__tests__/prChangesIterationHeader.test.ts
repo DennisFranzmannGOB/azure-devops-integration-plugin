@@ -1,12 +1,6 @@
 import { PrChangesProvider } from '../prChangesProvider';
 import { EnrichedPullRequest } from '../api';
 
-jest.mock('../prCommentDocProvider', () => ({
-    setCommentContent: jest.fn(),
-    buildCommentDocUri: jest.fn(),
-    clearCommentContent: jest.fn(),
-}));
-
 jest.mock('../auth', () => ({
     getToken: jest.fn().mockResolvedValue('token'),
 }));

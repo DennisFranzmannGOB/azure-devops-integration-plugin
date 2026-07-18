@@ -1,16 +1,6 @@
 import { PrChangesProvider } from '../prChangesProvider';
 import { EnrichedPullRequest } from '../api';
 
-jest.mock('../prCommentDocProvider', () => ({
-    setCommentContent: jest.fn(),
-    buildCommentDocUri: jest.fn(),
-    clearCommentContent: jest.fn(),
-}));
-
-const commentDocs = jest.requireMock('../prCommentDocProvider') as {
-    clearCommentContent: jest.Mock;
-};
-
 function makePr(pullRequestId: number, repoId: string): EnrichedPullRequest {
     return {
         pullRequestId,
@@ -31,10 +21,6 @@ function makePr(pullRequestId: number, repoId: string): EnrichedPullRequest {
 }
 
 describe('PrChangesProvider selection tracking', () => {
-    beforeEach(() => {
-        commentDocs.clearCommentContent.mockReset();
-    });
-
     it('does not report a switch on the first selected PR', () => {
         const provider = new PrChangesProvider({} as any);
 
@@ -42,20 +28,18 @@ describe('PrChangesProvider selection tracking', () => {
 
         expect(switched).toBe(false);
         expect(provider.getSelectedPrContext()).toEqual({ org: 'org', repoId: 'repo1', prId: 42 });
-        expect(commentDocs.clearCommentContent).not.toHaveBeenCalled();
     });
 
-    it('does not clear comment docs when re-selecting the same PR', () => {
+    it('does not report a switch when re-selecting the same PR', () => {
         const provider = new PrChangesProvider({} as any);
         provider.selectPr(makePr(42, 'repo1'), 'org');
 
         const switched = provider.selectPr(makePr(42, 'repo1'), 'org');
 
         expect(switched).toBe(false);
-        expect(commentDocs.clearCommentContent).not.toHaveBeenCalled();
     });
 
-    it('clears comment docs when switching to a different PR', () => {
+    it('reports a switch when selecting a different PR', () => {
         const provider = new PrChangesProvider({} as any);
         provider.selectPr(makePr(42, 'repo1'), 'org');
 
@@ -63,7 +47,6 @@ describe('PrChangesProvider selection tracking', () => {
 
         expect(switched).toBe(true);
         expect(provider.getSelectedPrContext()).toEqual({ org: 'org', repoId: 'repo1', prId: 99 });
-        expect(commentDocs.clearCommentContent).toHaveBeenCalledTimes(1);
     });
 
     it('treats same PR id in another repo as a switch', () => {
@@ -71,9 +54,8 @@ describe('PrChangesProvider selection tracking', () => {
         provider.selectPr(makePr(42, 'repo1'), 'org');
 
         const switched = provider.selectPr(makePr(42, 'repo2'), 'org');
-
         expect(switched).toBe(true);
         expect(provider.getSelectedPrContext()).toEqual({ org: 'org', repoId: 'repo2', prId: 42 });
-        expect(commentDocs.clearCommentContent).toHaveBeenCalledTimes(1);
+        expect(provider.getSelectedPrContext()).toEqual({ org: 'org', repoId: 'repo2', prId: 42 });
     });
 });

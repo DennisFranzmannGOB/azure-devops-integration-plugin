@@ -15,8 +15,6 @@ const mockPrChangesProvider = {
     getSelectedPrContext: jest.fn(),
     clear: jest.fn(),
     refresh: jest.fn(),
-    openThreadById: jest.fn(),
-    openComment: jest.fn(),
     replyToDiscussionThread: jest.fn(),
     changeThreadStatus: jest.fn().mockResolvedValue(undefined),
     addGeneralComment: jest.fn(),
@@ -35,6 +33,12 @@ const mockPrCommentController = {
     isReviewModeFile: jest.fn().mockReturnValue(false),
     onDidAddComment: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     dispose: jest.fn(),
+};
+
+const mockDiscussionNavigator = {
+    clear: jest.fn(),
+    openThread: jest.fn(),
+    openThreadById: jest.fn(),
 };
 
 const mockCheckoutPrBranch = jest.fn();
@@ -76,6 +80,9 @@ jest.mock('../prComments', () => ({
 jest.mock('../prCommentDocProvider', () => ({
     PrCommentDocProvider: jest.fn().mockImplementation(() => ({})),
     PR_COMMENT_SCHEME: 'azuredevops-pr-comment',
+}));
+jest.mock('../discussionNavigation', () => ({
+    DiscussionNavigator: jest.fn().mockImplementation(() => mockDiscussionNavigator),
 }));
 jest.mock('../prLinks', () => ({ buildPullRequestThreadUrl: jest.fn(() => 'https://example.invalid/pr/thread') }));
 jest.mock('../reviewMode', () => ({ tryGetReviewModeUri: jest.fn().mockResolvedValue(undefined) }));
@@ -134,6 +141,9 @@ describe('extension PR switching cleanup', () => {
         mockPrChangesProvider.getSelectedPrContext.mockReturnValue(undefined);
         mockCheckoutPrBranch.mockResolvedValue(true);
         mockPrCommentController.isReviewModeFile.mockReturnValue(false);
+        mockDiscussionNavigator.clear.mockReset();
+        mockDiscussionNavigator.openThread.mockReset();
+        mockDiscussionNavigator.openThreadById.mockReset();
 
         (vscode.window as any).createTreeView = jest.fn().mockReturnValue({ title: 'PR Changes', dispose: jest.fn(), onDidChangeCheckboxState: jest.fn().mockReturnValue({ dispose: jest.fn() }) });
         (vscode.window as any).onDidChangeActiveTextEditor = jest.fn().mockReturnValue({ dispose: jest.fn() });
@@ -194,23 +204,20 @@ describe('extension PR switching cleanup', () => {
         await handlers!.openComment({ org: 'org', pr: makePr(77, 'repo1'), thread: { threadId: 123 } });
 
         expect(mockPrCommentController.clearAll).toHaveBeenCalledTimes(1);
-        expect(mockPrChangesProvider.openThreadById).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: 77 }), 'org', 123);
+        expect(mockDiscussionNavigator.openThreadById).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: 77 }), 'org', 123);
         expect(mockPrCommentController.clearAll.mock.invocationCallOrder[0]).toBeLessThan(
-            mockPrChangesProvider.openThreadById.mock.invocationCallOrder[0]
+            mockDiscussionNavigator.openThreadById.mock.invocationCallOrder[0]
         );
     });
 
-    it('reloads inline comments after opening a file-backed discussion from the tree', async () => {
+    it('delegates discussion opening to the navigation module', async () => {
         const openDiscussionComment = getRegisteredCommand('azureDevops.openDiscussionComment');
         const item = { thread: { id: 123 } };
 
         await openDiscussionComment(item);
 
-        expect(mockPrChangesProvider.openComment).toHaveBeenCalledWith(item);
-        expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
-        expect(mockPrChangesProvider.openComment.mock.invocationCallOrder[0]).toBeLessThan(
-            mockPrCommentController.refreshAll.mock.invocationCallOrder[0]
-        );
+        expect(mockDiscussionNavigator.openThread).toHaveBeenCalledWith(item);
+        expect(mockPrCommentController.refreshAll).not.toHaveBeenCalled();
     });
 
     it('reloads inline comments after replying from the discussion tree', async () => {

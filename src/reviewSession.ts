@@ -23,6 +23,10 @@ export interface ReviewUpdatesAdapter {
     refresh(): void;
 }
 
+export interface ReviewTranscriptAdapter {
+    clear(): void;
+}
+
 export interface ReviewSessionView {
     setTitle(title: string): void;
     reveal(): Promise<void>;
@@ -34,6 +38,7 @@ export class ReviewSession {
         private readonly comments: ReviewCommentsAdapter,
         private readonly updates: ReviewUpdatesAdapter,
         private readonly view: ReviewSessionView,
+        private readonly transcripts: ReviewTranscriptAdapter,
     ) { }
 
     async select(pr: EnrichedPullRequest, org: string): Promise<void> {
@@ -41,6 +46,7 @@ export class ReviewSession {
         const current = this.changes.getSelectedPrContext();
         if (current && !sameSelectedPrContext(current, next)) {
             this.comments.clearAll();
+            this.transcripts.clear();
         }
 
         this.changes.selectPr(pr, org);
@@ -56,6 +62,7 @@ export class ReviewSession {
     clear(): void {
         this.changes.clear();
         this.comments.clearAll();
+        this.transcripts.clear();
         this.updates.clear();
         this.view.setTitle('PR Changes');
     }

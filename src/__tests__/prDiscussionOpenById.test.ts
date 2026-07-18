@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { PrChangesProvider } from '../prChangesProvider';
 import { EnrichedPullRequest } from '../api';
 import { parsePrFileUri } from '../prContentProvider';
+import { PrCommentDocProvider } from '../prCommentDocProvider';
+import { DiscussionNavigator } from '../discussionNavigation';
 
 jest.mock('../auth', () => ({
     getToken: jest.fn().mockResolvedValue('token'),
@@ -40,7 +42,26 @@ function makePr(): EnrichedPullRequest {
     };
 }
 
-describe('PrChangesProvider.openThreadById', () => {
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
+describe('DiscussionNavigator.openThreadById', () => {
+    let refreshInlineComments: jest.Mock;
+
+    function createNavigator(): DiscussionNavigator {
+        refreshInlineComments = jest.fn().mockResolvedValue(undefined);
+        return new DiscussionNavigator(
+            {} as vscode.SecretStorage,
+            new PrCommentDocProvider(),
+            { refreshAll: refreshInlineComments },
+        );
+    }
+
     beforeEach(() => {
         api.getPrIterations.mockReset();
         api.getPrThreads.mockReset();
@@ -82,8 +103,8 @@ describe('PrChangesProvider.openThreadById', () => {
             }],
         }]);
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 9);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 9);
 
         expect(result).toBe(true);
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
@@ -97,6 +118,7 @@ describe('PrChangesProvider.openThreadById', () => {
         const [, leftUri, rightUri] = (vscode.commands.executeCommand as jest.Mock).mock.calls[0];
         expect(parsePrFileUri(leftUri)?.filePath).toBe('/src/app.ts');
         expect(parsePrFileUri(rightUri)?.filePath).toBe('/src/app.ts');
+        expect(refreshInlineComments).toHaveBeenCalledTimes(1);
     });
 
     it('opens a renamed file thread with original path on the left and current path on the right', async () => {
@@ -132,8 +154,8 @@ describe('PrChangesProvider.openThreadById', () => {
             }],
         }]);
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 12);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 12);
 
         expect(result).toBe(true);
         const [, leftUri, rightUri, label] = (vscode.commands.executeCommand as jest.Mock).mock.calls[0];
@@ -174,8 +196,8 @@ describe('PrChangesProvider.openThreadById', () => {
             }],
         }]);
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 13);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 13);
 
         expect(result).toBe(true);
         const [, leftUri, rightUri] = (vscode.commands.executeCommand as jest.Mock).mock.calls[0];
@@ -217,8 +239,8 @@ describe('PrChangesProvider.openThreadById', () => {
         }]);
         (vscode.workspace.openTextDocument as jest.Mock).mockResolvedValue({ uri: 'doc' });
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 14);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 14);
 
         expect(result).toBe(true);
         expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
@@ -254,8 +276,8 @@ describe('PrChangesProvider.openThreadById', () => {
         }]);
         (vscode.workspace.openTextDocument as jest.Mock).mockResolvedValue({ uri: 'doc' });
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 11);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 11);
 
         expect(result).toBe(true);
         expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
@@ -284,13 +306,72 @@ describe('PrChangesProvider.openThreadById', () => {
             }],
         }]);
 
-        const provider = new PrChangesProvider({} as any);
-        const result = await provider.openThreadById(makePr(), 'org', 99);
+        const navigator = createNavigator();
+        const result = await navigator.openThreadById(makePr(), 'org', 99);
 
         expect(result).toBe(false);
         expect(vscode.commands.executeCommand).not.toHaveBeenCalled();
         expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
         expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+    });
+
+    it('discards a thread lookup that finishes after the review session is cleared', async () => {
+        const iterations = createDeferred<Array<{
+            id: number;
+            sourceRefCommit: { commitId: string };
+            targetRefCommit: { commitId: string };
+        }>>();
+        api.getPrIterations.mockReturnValue(iterations.promise);
+        const navigator = createNavigator();
+
+        const opening = navigator.openThreadById(makePr(), 'org', 9);
+        await Promise.resolve();
+        navigator.clear();
+        iterations.resolve([{
+            id: 1,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
+
+        await expect(opening).resolves.toBe(false);
+        expect(api.getPrThreads).not.toHaveBeenCalled();
+        expect(vscode.workspace.openTextDocument).not.toHaveBeenCalled();
+        expect(refreshInlineComments).not.toHaveBeenCalled();
+    });
+
+    it('does not focus a transcript opened after the review session is cleared', async () => {
+        api.getPrIterations.mockResolvedValue([{
+            id: 1,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
+        api.getPrChanges.mockResolvedValue([]);
+        api.getPrThreads.mockResolvedValue([{
+            id: 11,
+            status: 'active',
+            isDeleted: false,
+            comments: [{
+                id: 1,
+                parentCommentId: 0,
+                content: 'General comment',
+                author: { displayName: 'Alice', id: 'a1' },
+                publishedDate: '2024-01-15T10:00:00Z',
+                commentType: 'text',
+                isDeleted: false,
+            }],
+        }]);
+        const document = createDeferred<{ uri: string }>();
+        (vscode.workspace.openTextDocument as jest.Mock).mockReturnValue(document.promise);
+        const navigator = createNavigator();
+
+        const opening = navigator.openThreadById(makePr(), 'org', 11);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        navigator.clear();
+        document.resolve({ uri: 'doc' });
+
+        await expect(opening).resolves.toBe(false);
+        expect(vscode.window.showTextDocument).not.toHaveBeenCalled();
+        expect(refreshInlineComments).not.toHaveBeenCalled();
     });
 
     it('lists general comments before changed files in the root tree', async () => {

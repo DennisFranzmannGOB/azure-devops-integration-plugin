@@ -179,7 +179,7 @@ export function parsePrFileUri(uri: vscode.Uri): PrFileUriContext | undefined {
     const project = decodeURIComponent(parts[1]);
     const repoId = parts[2];
     const commitId = parts[3];
-    const filePath = '/' + parts.slice(4).join('/');
+    const filePath = '/' + parts.slice(4).map(decodeURIComponent).join('/');
 
     const queryParams = new URLSearchParams(uri.query);
     const prIdStr = queryParams.get('prId');

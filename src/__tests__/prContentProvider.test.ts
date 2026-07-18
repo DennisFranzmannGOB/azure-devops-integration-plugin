@@ -174,6 +174,16 @@ describe('parsePrFileUri', () => {
         expect(result?.side).toBe('left');
     });
 
+    it.each([
+        '/src/My File.ts',
+        '/src/component#1.ts',
+        '/src/überblick.ts',
+    ])('roundtrips encoded file path %s', (filePath) => {
+        const uri = buildPrFileUri('org', 'proj', 'repo1', 'commit1', filePath);
+
+        expect(parsePrFileUri(uri)?.filePath).toBe(filePath);
+    });
+
     it('treats invalid side values as undefined', () => {
         const uri = { scheme: 'azuredevops-pr', authority: 'myOrg', path: '/proj/repo/commit/file.ts', query: 'side=center' } as any;
         const result = parsePrFileUri(uri);

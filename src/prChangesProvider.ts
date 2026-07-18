@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrChange, PrThread, replyToThread, addPullRequestComment, searchIdentitiesByDisplayName, ThreadStatus, updateThreadStatus } from './api';
 import { getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
-import { buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
-import { setCommentContent, buildCommentDocUri, clearCommentContent } from './prCommentDocProvider';
+import { ResolvedThreadPaths, resolveThreadPaths } from './discussionNavigation';
 import { ReviewedFilesStore } from './reviewedFiles';
 
 export interface SelectedPrContext {
@@ -30,47 +29,9 @@ export function sameSelectedPrContext(
         && left.prId === right.prId;
 }
 
-// --- Tree item types ---
-
 export type PrChangesTreeItem = PrFileItem | PrFolderItem | PrCommentThreadItem | PrCommentReplyItem | PrGeneralCommentsItem;
 
-interface ResolvedThreadPaths {
-    displayFilePath?: string;
-    leftFilePath?: string;
-    rightFilePath?: string;
-}
-
-function resolveThreadPaths(thread: PrThread, changes: PrChange[] = []): ResolvedThreadPaths {
-    const threadFilePath = thread.threadContext?.filePath;
-    if (!threadFilePath) {
-        return {};
-    }
-
-    const matchingChange = changes.find((change) => change.item?.path === threadFilePath)
-        ?? changes.find((change) => change.originalPath === threadFilePath);
-
-    const currentPath = matchingChange?.item?.path ?? threadFilePath;
-    const originalPath = matchingChange?.originalPath ?? threadFilePath;
-
-    switch (matchingChange?.changeType) {
-        case 'add':
-            return {
-                displayFilePath: currentPath,
-                rightFilePath: currentPath,
-            };
-        case 'delete':
-            return {
-                displayFilePath: currentPath,
-                leftFilePath: originalPath,
-            };
-        default:
-            return {
-                displayFilePath: currentPath,
-                leftFilePath: originalPath,
-                rightFilePath: currentPath,
-            };
-    }
-}
+// --- Tree item types ---
 
 export class PrFileItem extends vscode.TreeItem {
     public children?: PrCommentThreadItem[];
@@ -328,7 +289,10 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private readonly secretStorage: vscode.SecretStorage;
     private readonly reviewedStore?: ReviewedFilesStore;
 
-    constructor(secretStorage: vscode.SecretStorage, reviewedStore?: ReviewedFilesStore) {
+    constructor(
+        secretStorage: vscode.SecretStorage,
+        reviewedStore?: ReviewedFilesStore,
+    ) {
         this.secretStorage = secretStorage;
         this.reviewedStore = reviewedStore;
     }
@@ -350,9 +314,6 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedPr = pr;
         this.selectedOrg = org;
         this.currentIterationId = undefined;
-        if (switchedPr) {
-            clearCommentContent();
-        }
         this._onDidChangeTreeData.fire();
 
         return switchedPr;
@@ -368,7 +329,6 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedPr = undefined;
         this.selectedOrg = undefined;
         this.currentIterationId = undefined;
-        clearCommentContent();
         this._onIterationResolved.fire(undefined);
         this._onDidChangeTreeData.fire();
     }
@@ -640,119 +600,4 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         }
     }
 
-    async openComment(item: PrCommentThreadItem): Promise<void> {
-        const ctx = item.thread.threadContext;
-        if (!ctx?.filePath) {
-            return this.showFullComment(item);
-        }
-
-        const hasRequiredCommitContext =
-            (!item.diffPaths.leftFilePath || !!item.targetCommitId) &&
-            (!item.diffPaths.rightFilePath || !!item.sourceCommitId);
-
-        if (!hasRequiredCommitContext) {
-            return this.showFullComment(item);
-        }
-
-        const isRight = !!ctx.rightFileStart;
-        const pos = ctx.rightFileStart ?? ctx.leftFileStart;
-        const line = Math.max(0, (pos?.line ?? 1) - 1);
-
-        const label = item.diffPaths.displayFilePath ?? ctx.filePath;
-        const leftUri = item.diffPaths.leftFilePath
-            ? buildPrFileUri(
-                item.org, item.project, item.repoId, item.targetCommitId, item.diffPaths.leftFilePath, item.prId, 'left'
-            )
-            : buildEmptyPrFileUri();
-        const rightUri = item.diffPaths.rightFilePath
-            ? buildPrFileUri(
-                item.org, item.project, item.repoId, item.sourceCommitId, item.diffPaths.rightFilePath, item.prId, 'right'
-            )
-            : buildEmptyPrFileUri();
-
-        try {
-            await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, label);
-        } catch {
-            return this.showFullComment(item);
-        }
-
-        if (isRight && item.diffPaths.rightFilePath) {
-            setTimeout(() => {
-                const editor = vscode.window.activeTextEditor;
-                if (editor) {
-                    const range = new vscode.Range(line, 0, line, 0);
-                    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-                    editor.selection = new vscode.Selection(line, 0, line, 0);
-                }
-            }, 300);
-        }
-    }
-
-    async openThreadById(pr: EnrichedPullRequest, org: string, threadId: number): Promise<boolean> {
-        const token = await getToken(this.secretStorage);
-        if (!token) { return false; }
-
-        const project = pr.repository?.project?.name ?? '';
-        const repoId = pr.repository?.id ?? '';
-        if (!project || !repoId) { return false; }
-
-        try {
-            const iterations = await getPrIterations(org, project, repoId, pr.pullRequestId, token);
-            const lastIteration = iterations.at(-1);
-            const trackedIterationId = lastIteration?.id;
-            const sourceCommitId = lastIteration?.sourceRefCommit?.commitId ?? '';
-            const targetCommitId = lastIteration?.targetRefCommit?.commitId ?? '';
-            const [threads, changes] = await Promise.all([
-                getPrThreads(org, project, repoId, pr.pullRequestId, token, trackedIterationId, trackedIterationId),
-                trackedIterationId
-                    ? getPrChanges(org, project, repoId, pr.pullRequestId, trackedIterationId, token)
-                    : Promise.resolve([]),
-            ]);
-
-            const visibleThreads = threads
-                .filter((t) =>
-                    !t.isDeleted &&
-                    t.comments.some((c) => !c.isDeleted && c.commentType !== 'system')
-                )
-                .map((t) => new PrCommentThreadItem(
-                    t, org, project, repoId, pr.pullRequestId,
-                    sourceCommitId, targetCommitId,
-                    '',
-                    resolveThreadPaths(t, changes),
-                ));
-
-            const target = visibleThreads.find((item) => item.thread.id === threadId);
-            if (!target) {
-                return false;
-            }
-
-            await this.openComment(target);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    private async showFullComment(item: PrCommentThreadItem): Promise<void> {
-        const userComments = item.thread.comments.filter(
-            (c) => !c.isDeleted && c.commentType !== 'system'
-        );
-        if (userComments.length === 0) { return; }
-
-        const lines: string[] = [];
-        for (const comment of userComments) {
-            lines.push(`**${comment.author.displayName}**`);
-            lines.push('');
-            lines.push(comment.content);
-            lines.push('\n---\n');
-        }
-        lines.pop();
-
-        const markdown = lines.join('\n');
-        setCommentContent(item.thread.id, markdown);
-
-        const uri = buildCommentDocUri(item.thread.id);
-        const doc = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(doc, { preview: true });
-    }
 }

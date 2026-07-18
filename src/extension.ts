@@ -20,6 +20,7 @@ import {
 import { PrContentProvider, buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
 import { PrCommentController } from './prComments';
 import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider';
+import { DiscussionNavigator } from './discussionNavigation';
 import { buildPullRequestThreadUrl } from './prLinks';
 import { tryGetReviewModeUri } from './reviewMode';
 import { ReviewedFilesStore } from './reviewedFiles';
@@ -149,8 +150,9 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     // PR comment content provider — shows full discussion threads as markdown
+    const prCommentDocProvider = new PrCommentDocProvider();
     context.subscriptions.push(
-        vscode.workspace.registerTextDocumentContentProvider(PR_COMMENT_SCHEME, new PrCommentDocProvider())
+        vscode.workspace.registerTextDocumentContentProvider(PR_COMMENT_SCHEME, prCommentDocProvider)
     );
 
     // PR comment controller — shows Azure DevOps threads on diff views
@@ -166,6 +168,11 @@ export function activate(context: vscode.ExtensionContext) {
     // PR changes tree view (includes file changes + discussion threads)
     const reviewedStore = new ReviewedFilesStore(context.workspaceState);
     reviewedStore.gc();
+    const discussionNavigator = new DiscussionNavigator(
+        secretStorage,
+        prCommentDocProvider,
+        prCommentController,
+    );
     const prChangesProvider = new PrChangesProvider(secretStorage, reviewedStore);
     const prChangesTree = vscode.window.createTreeView('azureDevops.prChanges', {
         treeDataProvider: prChangesProvider,
@@ -193,6 +200,7 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand('azureDevops.prChanges.focus');
             },
         },
+        discussionNavigator,
     );
     context.subscriptions.push(
         prCommentController.onDidAddComment(() => prChangesProvider.refresh()),
@@ -229,7 +237,7 @@ export function activate(context: vscode.ExtensionContext) {
         openComment: async ({ org, pr, thread }) => {
             await reviewSession.select(pr, org);
             try {
-                const opened = await prChangesProvider.openThreadById(pr, org, thread.threadId);
+                const opened = await discussionNavigator.openThreadById(pr, org, thread.threadId);
                 if (!opened) {
                     safeShowWarningMessage('Unable to open this comment thread. It may no longer be available.');
                 }
@@ -312,8 +320,7 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('azureDevops.openDiscussionComment', async (item: PrCommentThreadItem) => {
             try {
-                await prChangesProvider.openComment(item);
-                await prCommentController.refreshAll();
+                await discussionNavigator.openThread(item);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 safeShowErrorMessage(`Failed to open discussion comment: ${message}`);
