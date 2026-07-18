@@ -15,7 +15,6 @@ import {
     PrFileItem,
     PrFolderItem,
     PrCommentThreadItem,
-    buildSelectedPrContext,
     sameSelectedPrContext,
 } from './prChangesProvider';
 import { PrContentProvider, buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
@@ -25,6 +24,7 @@ import { buildPullRequestThreadUrl } from './prLinks';
 import { tryGetReviewModeUri } from './reviewMode';
 import { ReviewedFilesStore } from './reviewedFiles';
 import { PrUpdatesProvider, PrIterationFileItem } from './prUpdatesProvider';
+import { ReviewSession } from './reviewSession';
 
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
@@ -158,7 +158,6 @@ export function activate(context: vscode.ExtensionContext) {
     prCommentController.loadExisting();
     context.subscriptions.push(
         prCommentController,
-        prCommentController.onDidAddComment(() => prChangesProvider.refresh()),
         vscode.commands.registerCommand('azureDevops.replyToComment', (reply: vscode.CommentReply) => {
             return prCommentController.replyToThread(reply);
         }),
@@ -175,12 +174,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(prChangesTree);
 
     prChangesProvider.onIterationResolved(iterationId => {
-        const prId = prChangesProvider.getSelectedPrContext()?.prId;
-        if (prId) {
-            prChangesTree.title = iterationId
-                ? `Changes: #${prId} (Iteration ${iterationId})`
-                : `Changes: #${prId}`;
-        }
+        reviewSession.setIteration(iterationId);
     });
 
     const prUpdatesProvider = new PrUpdatesProvider(secretStorage);
@@ -189,30 +183,38 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(prUpdatesTree);
 
-    const switchToPr = (pr: Parameters<PrChangesProvider['selectPr']>[0], org: string): void => {
-        const switchedPr = prChangesProvider.selectPr(pr, org);
-        if (switchedPr) {
-            prCommentController.clearAll();
-        }
-        prUpdatesProvider.selectPr(pr, org);
-        prChangesTree.title = `Changes: #${pr.pullRequestId}`;
-    };
+    const reviewSession = new ReviewSession(
+        prChangesProvider,
+        prCommentController,
+        prUpdatesProvider,
+        {
+            setTitle: (title) => { prChangesTree.title = title; },
+            reveal: async () => {
+                await vscode.commands.executeCommand('azureDevops.prChanges.focus');
+            },
+        },
+    );
+    context.subscriptions.push(
+        prCommentController.onDidAddComment(() => prChangesProvider.refresh()),
+    );
 
     const handleCurrentBranchMatchedPr = async (item: PullRequestItem): Promise<void> => {
         if (!item.pr || !item.org) {
             return;
         }
 
-        const matchedContext = buildSelectedPrContext(item.pr, item.org);
         const currentSelection = prChangesProvider.getSelectedPrContext();
-        if (currentSelection && !sameSelectedPrContext(currentSelection, matchedContext)) {
+        if (currentSelection && !sameSelectedPrContext(
+            currentSelection,
+            { org: item.org, repoId: item.pr.repository?.id ?? '', prId: item.pr.pullRequestId },
+        )) {
             return;
         }
 
         await prProvider.revealPullRequest(item);
 
         if (!currentSelection) {
-            switchToPr(item.pr, item.org);
+            await reviewSession.select(item.pr, item.org);
         }
     };
 
@@ -225,7 +227,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     prProvider.setCommentNotificationHandlers({
         openComment: async ({ org, pr, thread }) => {
-            switchToPr(pr, org);
+            await reviewSession.select(pr, org);
             try {
                 const opened = await prChangesProvider.openThreadById(pr, org, thread.threadId);
                 if (!opened) {
@@ -246,7 +248,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('azureDevops.checkoutPrBranch', async (item: PullRequestItem | undefined) => {
-            const currentSelection = prChangesProvider.getSelectedPrContext();
             if (!item) {
                 return;
             }
@@ -256,24 +257,15 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const nextSelection = buildSelectedPrContext(item.pr, item.org);
-            if (!currentSelection || !sameSelectedPrContext(currentSelection, nextSelection)) {
-                prChangesProvider.clear();
-                prCommentController.clearAll();
-                prUpdatesProvider.clear();
-                prChangesTree.title = 'PR Changes';
-            }
+            await reviewSession.checkout(item.pr, item.org);
         }),
         vscode.commands.registerCommand('azureDevops.reviewPrChanges', (item: PullRequestItem | undefined) => {
             if (item?.pr && item?.org) {
-                switchToPr(item.pr, item.org);
+                return reviewSession.select(item.pr, item.org);
             }
         }),
         vscode.commands.registerCommand('azureDevops.clearPrChanges', () => {
-            prChangesProvider.clear();
-            prCommentController.clearAll();
-            prUpdatesProvider.clear();
-            prChangesTree.title = 'PR Changes';
+            reviewSession.clear();
         }),
         vscode.commands.registerCommand('azureDevops.refreshPrUpdates', () => {
             prUpdatesProvider.refresh();
@@ -297,8 +289,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }),
         vscode.commands.registerCommand('azureDevops.refreshPrChanges', () => {
-            prChangesProvider.refresh();
-            prCommentController.refreshAll();
+            return reviewSession.refresh();
         }),
         prChangesTree.onDidChangeCheckboxState(e => {
             for (const [item, state] of e.items) {

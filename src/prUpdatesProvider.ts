@@ -77,22 +77,26 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
 
     private selectedPr?: EnrichedPullRequest;
     private selectedOrg?: string;
+    private selectionGeneration = 0;
 
     constructor(private readonly secretStorage: vscode.SecretStorage) { }
 
     selectPr(pr: EnrichedPullRequest, org: string): void {
+        this.selectionGeneration++;
         this.selectedPr = pr;
         this.selectedOrg = org;
         this._onDidChangeTreeData.fire();
     }
 
     clear(): void {
+        this.selectionGeneration++;
         this.selectedPr = undefined;
         this.selectedOrg = undefined;
         this._onDidChangeTreeData.fire();
     }
 
     refresh(): void {
+        this.selectionGeneration++;
         this._onDidChangeTreeData.fire();
     }
 
@@ -113,16 +117,18 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
     private async getRootItems(): Promise<PrIterationItem[]> {
         if (!this.selectedPr || !this.selectedOrg) { return []; }
 
-        const token = await getToken(this.secretStorage);
-        if (!token) { return []; }
-
+        const selectionGeneration = this.selectionGeneration;
         const pr = this.selectedPr;
         const org = this.selectedOrg;
+        const token = await getToken(this.secretStorage);
+        if (!token || !this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+
         const project = pr.repository?.project?.name ?? '';
         const repoId = pr.repository?.id ?? '';
 
         try {
             const iterations = await getPrIterations(org, project, repoId, pr.pullRequestId, token);
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
             if (iterations.length === 0) { return []; }
 
             // Build items newest-first; each item needs to know its "base" (previous push HEAD)
@@ -144,6 +150,7 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
             }
             return items;
         } catch (e: unknown) {
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
             const msg = e instanceof Error ? e.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to load PR updates: ${msg}`);
             return [];
@@ -153,11 +160,12 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
     private async getIterationFiles(item: PrIterationItem): Promise<PrIterationFileItem[]> {
         if (!this.selectedPr || !this.selectedOrg) { return []; }
 
-        const token = await getToken(this.secretStorage);
-        if (!token) { return []; }
-
+        const selectionGeneration = this.selectionGeneration;
         const pr = this.selectedPr;
         const org = this.selectedOrg;
+        const token = await getToken(this.secretStorage);
+        if (!token || !this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+
         const project = pr.repository?.project?.name ?? '';
         const repoId = pr.repository?.id ?? '';
 
@@ -170,6 +178,7 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
                 item.iterationId, token,
                 compareToIterationId,
             );
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
             return changes
                 .filter(c => c.item?.path)
                 .map(c => new PrIterationFileItem(
@@ -178,9 +187,20 @@ export class PrUpdatesProvider implements vscode.TreeDataProvider<PrUpdatesTreeI
                     item.sourceCommitId,
                 ));
         } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : 'Unknown error';
-            vscode.window.showErrorMessage(`Failed to load iteration changes: ${msg}`);
-            return [];
+                if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+                const msg = e instanceof Error ? e.message : 'Unknown error';
+                vscode.window.showErrorMessage(`Failed to load iteration changes: ${msg}`);
+                return [];
         }
+    }
+
+    private isCurrentSelection(
+        pr: EnrichedPullRequest,
+        org: string,
+        selectionGeneration: number,
+    ): boolean {
+        return this.selectionGeneration === selectionGeneration
+                && this.selectedPr === pr
+                && this.selectedOrg === org;
     }
 }

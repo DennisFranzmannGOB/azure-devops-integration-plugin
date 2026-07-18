@@ -148,7 +148,7 @@ describe('extension PR switching cleanup', () => {
 
     it('clears inline comment threads when review switches to another PR', async () => {
         const reviewPrChanges = getRegisteredCommand('azureDevops.reviewPrChanges');
-        mockPrChangesProvider.selectPr.mockReturnValue(true);
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
 
         await reviewPrChanges({ pr: makePr(99, 'repo1'), org: 'org' });
 
@@ -158,7 +158,7 @@ describe('extension PR switching cleanup', () => {
 
     it('keeps current inline comments when re-selecting the same PR', async () => {
         const reviewPrChanges = getRegisteredCommand('azureDevops.reviewPrChanges');
-        mockPrChangesProvider.selectPr.mockReturnValue(false);
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
 
         await reviewPrChanges({ pr: makePr(42, 'repo1'), org: 'org' });
 
@@ -189,7 +189,7 @@ describe('extension PR switching cleanup', () => {
     });
 
     it('clears stale threads before opening a notification comment on another PR', async () => {
-        mockPrChangesProvider.selectPr.mockReturnValue(true);
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
 
         await handlers!.openComment({ org: 'org', pr: makePr(77, 'repo1'), thread: { threadId: 123 } });
 
@@ -257,7 +257,7 @@ describe('extension PR switching cleanup', () => {
         expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
     });
 
-    it('clears review state after checking out a different PR branch', async () => {
+    it('switches review state after checking out a different PR branch', async () => {
         const checkout = getRegisteredCommand('azureDevops.checkoutPrBranch');
         mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
         mockCheckoutPrBranch.mockResolvedValue(true);
@@ -265,11 +265,15 @@ describe('extension PR switching cleanup', () => {
         await checkout({ pr: makePr(99, 'repo1'), org: 'org' });
 
         expect(mockCheckoutPrBranch).toHaveBeenCalled();
-        expect(mockPrChangesProvider.clear).toHaveBeenCalledTimes(1);
+        expect(mockPrChangesProvider.selectPr).toHaveBeenCalledWith(
+            expect.objectContaining({ pullRequestId: 99 }),
+            'org',
+        );
+        expect(mockPrChangesProvider.clear).not.toHaveBeenCalled();
         expect(mockPrCommentController.clearAll).toHaveBeenCalledTimes(1);
     });
 
-    it('does not clear review state when checkout stays on the selected PR', async () => {
+    it('keeps inline comment state when checkout stays on the selected PR', async () => {
         const checkout = getRegisteredCommand('azureDevops.checkoutPrBranch');
         mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
         mockCheckoutPrBranch.mockResolvedValue(true);
@@ -278,5 +282,9 @@ describe('extension PR switching cleanup', () => {
 
         expect(mockPrChangesProvider.clear).not.toHaveBeenCalled();
         expect(mockPrCommentController.clearAll).not.toHaveBeenCalled();
+        expect(mockPrChangesProvider.selectPr).toHaveBeenCalledWith(
+            expect.objectContaining({ pullRequestId: 42 }),
+            'org',
+        );
     });
 });

@@ -324,6 +324,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private selectedPr?: EnrichedPullRequest;
     private selectedOrg?: string;
     private currentIterationId?: number;
+    private selectionGeneration = 0;
     private readonly secretStorage: vscode.SecretStorage;
     private readonly reviewedStore?: ReviewedFilesStore;
 
@@ -345,8 +346,10 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         const next = buildSelectedPrContext(pr, org);
         const switchedPr = !!current && !sameSelectedPrContext(current, next);
 
+        this.selectionGeneration++;
         this.selectedPr = pr;
         this.selectedOrg = org;
+        this.currentIterationId = undefined;
         if (switchedPr) {
             clearCommentContent();
         }
@@ -356,10 +359,12 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     }
 
     refresh(): void {
+        this.selectionGeneration++;
         this._onDidChangeTreeData.fire();
     }
 
     clear(): void {
+        this.selectionGeneration++;
         this.selectedPr = undefined;
         this.selectedOrg = undefined;
         this.currentIterationId = undefined;
@@ -413,16 +418,18 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             return [];
         }
 
-        const token = await getToken(this.secretStorage);
-        if (!token) { return []; }
-
+        const selectionGeneration = this.selectionGeneration;
         const pr = this.selectedPr;
         const org = this.selectedOrg;
+        const token = await getToken(this.secretStorage);
+        if (!token || !this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+
         const project = pr.repository?.project?.name ?? '';
         const repoId = pr.repository?.id ?? '';
 
         try {
             const iterations = await getPrIterations(org, project, repoId, pr.pullRequestId, token);
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
             if (iterations.length === 0) { return []; }
 
             const lastIteration = iterations[iterations.length - 1];
@@ -430,6 +437,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                 getPrChanges(org, project, repoId, pr.pullRequestId, lastIteration.id, token),
                 getPrThreads(org, project, repoId, pr.pullRequestId, token, lastIteration.id, lastIteration.id),
             ]);
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
 
             const sourceCommitId = lastIteration.sourceRefCommit?.commitId ?? '';
             const targetCommitId = lastIteration.targetRefCommit?.commitId ?? '';
@@ -447,11 +455,13 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                         const deltaChanges = await getPrChanges(
                             org, project, repoId, pr.pullRequestId, lastIteration.id, token, storedIterationId
                         );
+                        if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
                         const changedPaths = deltaChanges
                             .filter(c => c.item?.path)
                             .map(c => c.item.path);
                         this.reviewedStore.advanceIteration(pr.pullRequestId, lastIteration.id, changedPaths);
                     } catch {
+                        if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
                         // If the delta fetch fails, advance without removing any paths
                         // rather than silently clearing everything.
                         this.reviewedStore.advanceIteration(pr.pullRequestId, lastIteration.id, []);
@@ -531,10 +541,22 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             rootItems.push(...buildFolderTree(fileItems));
 
             return rootItems;
-        } catch (e: any) {
-            vscode.window.showErrorMessage(`Failed to load PR changes: ${e.message}`);
+        } catch (error: unknown) {
+            if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            vscode.window.showErrorMessage(`Failed to load PR changes: ${message}`);
             return [];
         }
+    }
+
+    private isCurrentSelection(
+        pr: EnrichedPullRequest,
+        org: string,
+        selectionGeneration: number,
+    ): boolean {
+        return this.selectionGeneration === selectionGeneration
+            && this.selectedPr === pr
+            && this.selectedOrg === org;
     }
 
     // --- Discussion actions (ported from PrDiscussionProvider) ---

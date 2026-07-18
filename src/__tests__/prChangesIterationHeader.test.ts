@@ -114,6 +114,56 @@ describe('PrChangesProvider.onIterationResolved', () => {
         expect(emitted).toEqual([5]);
     });
 
+    it('discards an iteration result that finishes after another PR is selected', async () => {
+        let resolveIterations: (value: Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>) => void;
+        const iterations = new Promise<Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>>((resolve) => {
+            resolveIterations = resolve;
+        });
+        api.getPrIterations.mockReturnValue(iterations);
+        api.getPrChanges.mockResolvedValue([]);
+
+        const provider = new PrChangesProvider({} as any);
+        const emitted: Array<number | undefined> = [];
+        provider.onIterationResolved(id => emitted.push(id));
+
+        provider.selectPr(makePr(1), 'org');
+        const pendingItems = provider.getChildren();
+        await Promise.resolve();
+
+        provider.selectPr(makePr(2), 'org');
+        resolveIterations!([
+            { id: 1, sourceRefCommit: { commitId: 'source-1' }, targetRefCommit: { commitId: 'target-1' } },
+        ]);
+
+        await expect(pendingItems).resolves.toEqual([]);
+        expect(emitted).toEqual([]);
+    });
+
+    it('discards an iteration result that finishes after a refresh', async () => {
+        let resolveIterations: (value: Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>) => void;
+        const iterations = new Promise<Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>>((resolve) => {
+            resolveIterations = resolve;
+        });
+        api.getPrIterations.mockReturnValue(iterations);
+        api.getPrChanges.mockResolvedValue([]);
+
+        const provider = new PrChangesProvider({} as any);
+        const emitted: Array<number | undefined> = [];
+        provider.onIterationResolved(id => emitted.push(id));
+
+        provider.selectPr(makePr(1), 'org');
+        const pendingItems = provider.getChildren();
+        await Promise.resolve();
+
+        provider.refresh();
+        resolveIterations!([
+            { id: 1, sourceRefCommit: { commitId: 'source-1' }, targetRefCommit: { commitId: 'target-1' } },
+        ]);
+
+        await expect(pendingItems).resolves.toEqual([]);
+        expect(emitted).toEqual([]);
+    });
+
     it('fetches threads tracked to the latest iteration', async () => {
         api.getPrIterations.mockResolvedValue([
             { id: 1, sourceRefCommit: { commitId: 'src1' }, targetRefCommit: { commitId: 'tgt1' } },

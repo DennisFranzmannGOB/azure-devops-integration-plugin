@@ -156,6 +156,46 @@ describe('PrUpdatesProvider — selectPr and clear', () => {
         const result = await provider.getChildren();
         expect(result).toEqual([]);
     });
+
+    it('discards iteration results that finish after the selected PR changes', async () => {
+        let resolveIterations: (value: Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>) => void;
+        const iterations = new Promise<Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>>((resolve) => {
+            resolveIterations = resolve;
+        });
+        api.getPrIterations.mockReturnValue(iterations);
+
+        const provider = new PrUpdatesProvider({} as any);
+        provider.selectPr(makePr(1), 'org');
+        const pendingItems = provider.getChildren();
+        await Promise.resolve();
+
+        provider.selectPr(makePr(2), 'org');
+        resolveIterations!([
+            { id: 1, sourceRefCommit: { commitId: 'source-1' }, targetRefCommit: { commitId: 'target-1' } },
+        ]);
+
+        await expect(pendingItems).resolves.toEqual([]);
+    });
+
+    it('discards iteration results that finish after a refresh', async () => {
+        let resolveIterations: (value: Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>) => void;
+        const iterations = new Promise<Array<{ id: number; sourceRefCommit: { commitId: string }; targetRefCommit: { commitId: string } }>>((resolve) => {
+            resolveIterations = resolve;
+        });
+        api.getPrIterations.mockReturnValue(iterations);
+
+        const provider = new PrUpdatesProvider({} as any);
+        provider.selectPr(makePr(1), 'org');
+        const pendingItems = provider.getChildren();
+        await Promise.resolve();
+
+        provider.refresh();
+        resolveIterations!([
+            { id: 1, sourceRefCommit: { commitId: 'source-1' }, targetRefCommit: { commitId: 'target-1' } },
+        ]);
+
+        await expect(pendingItems).resolves.toEqual([]);
+    });
 });
 
 describe('PrUpdatesProvider — getRootItems() — iteration ordering and base commits', () => {
