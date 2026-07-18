@@ -14,6 +14,10 @@ import { prepareCommentContentWithMentions } from '../commentMentions';
 import { buildPullRequestUrl } from '../prLinks';
 import { parsePrFileUri } from '../prContentProvider';
 
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
 async function getContext(item: PullRequestItem, provider: PullRequestTreeProvider) {
     if (!item) {
         vscode.window.showErrorMessage('This command must be run from a pull request in the sidebar.');
@@ -62,8 +66,8 @@ export function registerPrActions(
                     await updateReviewerVote(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, ctx.userId, vote, ctx.token);
                     vscode.window.showInformationMessage(`PR #${ctx.pr.pullRequestId}: ${label}`);
                     provider.refresh();
-                } catch (e: any) {
-                    vscode.window.showErrorMessage(`Failed to vote: ${e.message}`);
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to vote: ${getErrorMessage(error)}`);
                 }
             })
         );
@@ -90,8 +94,8 @@ export function registerPrActions(
                 await completePullRequest(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, commitId, ctx.token);
                 vscode.window.showInformationMessage(`PR #${ctx.pr.pullRequestId} completed.`);
                 provider.refresh();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to complete PR: ${e.message}`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to complete PR: ${getErrorMessage(error)}`);
             }
         })
     );
@@ -110,8 +114,8 @@ export function registerPrActions(
                 await abandonPullRequest(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, ctx.token);
                 vscode.window.showInformationMessage(`PR #${ctx.pr.pullRequestId} abandoned.`);
                 provider.refresh();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to abandon PR: ${e.message}`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to abandon PR: ${getErrorMessage(error)}`);
             }
         })
     );
@@ -134,8 +138,8 @@ export function registerPrActions(
                 await addPullRequestComment(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, preparedComment, ctx.token);
                 vscode.window.showInformationMessage('Comment added.');
                 provider.refresh();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to add comment: ${e.message}`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to add comment: ${getErrorMessage(error)}`);
             }
         })
     );
@@ -155,8 +159,8 @@ export function registerPrActions(
                 await updatePullRequestTitle(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, newTitle, ctx.token);
                 vscode.window.showInformationMessage(`PR #${ctx.pr.pullRequestId} title updated.`);
                 provider.refresh();
-            } catch (e: any) {
-                vscode.window.showErrorMessage(`Failed to update title: ${e.message}`);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to update title: ${getErrorMessage(error)}`);
             }
         })
     );
@@ -229,8 +233,8 @@ export function registerEditorVoteCommands(
                     await updateReviewerVote(org, project, repoId, pr.pullRequestId, userId, vote, token);
                     vscode.window.showInformationMessage(`PR #${pr.pullRequestId}: ${label}`);
                     provider.refresh();
-                } catch (e: any) {
-                    vscode.window.showErrorMessage(`Failed to vote: ${e.message}`);
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to vote: ${getErrorMessage(error)}`);
                 }
             })
         );

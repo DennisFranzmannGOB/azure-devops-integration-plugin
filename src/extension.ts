@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.env.openExternal(vscode.Uri.parse(url));
             }
         }),
-        vscode.commands.registerCommand('azureDevops.editPrDescription', (item?: any) => {
+        vscode.commands.registerCommand('azureDevops.editPrDescription', (item?: PullRequestItem) => {
             return editExistingPrDescription(prProvider, item);
         }),
         vscode.commands.registerCommand('azureDevops.editPrDescriptionFromPicker', () => {
