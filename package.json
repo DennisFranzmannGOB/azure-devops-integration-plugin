@@ -2,7 +2,7 @@
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
   "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
-  "version": "1.0.18",
+  "version": "1.1.1",
   "publisher": "lucacelea",
   "license": "MIT",
   "icon": "icon.png",
@@ -233,24 +233,9 @@
         "icon": "$(check)"
       },
       {
-        "command": "azureDevops.inlineWontFixThread",
-        "title": "Won't Fix",
-        "icon": "$(circle-slash)"
-      },
-      {
-        "command": "azureDevops.inlineByDesignThread",
-        "title": "By Design",
-        "icon": "$(info)"
-      },
-      {
-        "command": "azureDevops.inlineCloseThread",
-        "title": "Close",
-        "icon": "$(close)"
-      },
-      {
-        "command": "azureDevops.inlinePendingThread",
-        "title": "Pending",
-        "icon": "$(clock)"
+        "command": "azureDevops.inlineChangeThreadStatus",
+        "title": "Change Status",
+        "icon": "$(list-selection)"
       },
       {
         "command": "azureDevops.inlineReactivateThread",
@@ -338,23 +323,8 @@
           "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
         },
         {
-          "command": "azureDevops.inlinePendingThread",
-          "group": "1_status@1",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
-        },
-        {
-          "command": "azureDevops.inlineWontFixThread",
-          "group": "1_status@2",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
-        },
-        {
-          "command": "azureDevops.inlineByDesignThread",
-          "group": "1_status@3",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
-        },
-        {
-          "command": "azureDevops.inlineCloseThread",
-          "group": "1_status@4",
+          "command": "azureDevops.inlineChangeThreadStatus",
+          "group": "inline@1",
           "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
         },
         {
@@ -409,19 +379,7 @@
           "when": "false"
         },
         {
-          "command": "azureDevops.inlineWontFixThread",
-          "when": "false"
-        },
-        {
-          "command": "azureDevops.inlineByDesignThread",
-          "when": "false"
-        },
-        {
-          "command": "azureDevops.inlineCloseThread",
-          "when": "false"
-        },
-        {
-          "command": "azureDevops.inlinePendingThread",
+          "command": "azureDevops.inlineChangeThreadStatus",
           "when": "false"
         },
         {
