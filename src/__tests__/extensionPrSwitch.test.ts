@@ -25,6 +25,7 @@ const mockPrChangesProvider = {
 const mockPrCommentController = {
     loadExisting: jest.fn(),
     clearAll: jest.fn(),
+    selectPr: jest.fn().mockResolvedValue(undefined),
     refreshAll: jest.fn(),
     replyToThread: jest.fn(),
     changeStatus: jest.fn(),
@@ -238,6 +239,24 @@ describe('extension PR switching cleanup', () => {
         await replyToDiscussionThread({ thread: { id: 123 } });
 
         expect(mockPrCommentController.refreshAll).not.toHaveBeenCalled();
+    });
+
+    it('changes an inline thread to the status selected from the status picker', async () => {
+        const changeInlineThreadStatus = getRegisteredCommand('azureDevops.inlineChangeThreadStatus');
+        const thread = {} as vscode.CommentThread;
+        (vscode.window.showQuickPick as jest.Mock).mockResolvedValue({ label: 'Pending', status: 'pending' });
+
+        await changeInlineThreadStatus(thread);
+
+        expect(vscode.window.showQuickPick).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({ label: 'Pending', status: 'pending' }),
+                expect.objectContaining({ label: "Won't Fix", status: 'wontFix' }),
+                expect.objectContaining({ label: 'Closed', status: 'closed' }),
+            ]),
+            expect.objectContaining({ placeHolder: 'Set thread status' }),
+        );
+        expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'pending');
     });
 
     it('reloads inline comments whenever a PR file diff opens', async () => {

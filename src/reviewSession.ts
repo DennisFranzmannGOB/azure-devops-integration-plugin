@@ -14,6 +14,7 @@ export interface ReviewChangesAdapter {
 
 export interface ReviewCommentsAdapter {
     clearAll(): void;
+    selectPr(pr: EnrichedPullRequest, org: string, reviewMode?: boolean): Promise<void>;
     refreshAll(): Promise<void>;
 }
 
@@ -41,7 +42,7 @@ export class ReviewSession {
         private readonly transcripts: ReviewTranscriptAdapter,
     ) { }
 
-    async select(pr: EnrichedPullRequest, org: string): Promise<void> {
+    async select(pr: EnrichedPullRequest, org: string, reviewMode = false): Promise<void> {
         const next = buildSelectedPrContext(pr, org);
         const current = this.changes.getSelectedPrContext();
         if (current && !sameSelectedPrContext(current, next)) {
@@ -51,12 +52,13 @@ export class ReviewSession {
 
         this.changes.selectPr(pr, org);
         this.updates.selectPr(pr, org);
+        await this.comments.selectPr(pr, org, reviewMode);
         this.view.setTitle(`Changes: #${pr.pullRequestId}`);
         await this.view.reveal();
     }
 
     async checkout(pr: EnrichedPullRequest, org: string): Promise<void> {
-        await this.select(pr, org);
+        await this.select(pr, org, true);
     }
 
     clear(): void {

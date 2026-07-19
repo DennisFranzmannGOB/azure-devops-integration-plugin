@@ -26,6 +26,7 @@ import { tryGetReviewModeUri } from './reviewMode';
 import { ReviewedFilesStore } from './reviewedFiles';
 import { PrUpdatesProvider, PrIterationFileItem } from './prUpdatesProvider';
 import { ReviewSession } from './reviewSession';
+import type { ThreadStatus } from './api';
 
 export function activate(context: vscode.ExtensionContext) {
     const secretStorage = context.secrets;
@@ -357,17 +358,16 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.inlineResolveThread', (thread: vscode.CommentThread) => {
             return prCommentController.changeStatus(thread, 'fixed');
         }),
-        vscode.commands.registerCommand('azureDevops.inlineWontFixThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'wontFix');
-        }),
-        vscode.commands.registerCommand('azureDevops.inlineByDesignThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'byDesign');
-        }),
-        vscode.commands.registerCommand('azureDevops.inlineCloseThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'closed');
-        }),
-        vscode.commands.registerCommand('azureDevops.inlinePendingThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'pending');
+        vscode.commands.registerCommand('azureDevops.inlineChangeThreadStatus', async (thread: vscode.CommentThread) => {
+            const choices: Array<vscode.QuickPickItem & { status: ThreadStatus }> = [
+                { label: 'Pending', status: 'pending' },
+                { label: "Won't Fix", status: 'wontFix' },
+                { label: 'Closed', status: 'closed' },
+            ];
+            const choice = await vscode.window.showQuickPick(choices, { placeHolder: 'Set thread status' });
+            if (choice) {
+                await prCommentController.changeStatus(thread, choice.status);
+            }
         }),
         vscode.commands.registerCommand('azureDevops.inlineReactivateThread', (thread: vscode.CommentThread) => {
             return prCommentController.changeStatus(thread, 'active');

@@ -45,6 +45,11 @@ class MockUri {
     static file(value: string): { fsPath: string } {
         return { fsPath: value };
     }
+
+    static joinPath(base: MockUri, ...pathSegments: string[]): MockUri {
+        const path = [base.path.replace(/\/$/, ''), ...pathSegments].join('/');
+        return new MockUri(base.scheme, base.authority, path);
+    }
 }
 
 export const Uri = MockUri;

@@ -45,9 +45,16 @@ class FakeChanges {
 class FakeComments {
     clearCount = 0;
     refreshCount = 0;
+    selected?: SelectedPrContext;
+    reviewMode = false;
 
     clearAll(): void {
         this.clearCount++;
+    }
+
+    async selectPr(pr: EnrichedPullRequest, org: string, reviewMode = false): Promise<void> {
+        this.selected = buildSelectedPrContext(pr, org);
+        this.reviewMode = reviewMode;
     }
 
     async refreshAll(): Promise<void> {
@@ -111,11 +118,12 @@ function createSession() {
 
 describe('ReviewSession', () => {
     it('selects a PR across review surfaces and opens the review view', async () => {
-        const { session, changes, updates, view } = createSession();
+        const { session, changes, comments, updates, view } = createSession();
 
         await session.select(makePr(42), 'org');
 
         expect(changes.selected).toEqual({ org: 'org', repoId: 'repo1', prId: 42 });
+        expect(comments.selected).toEqual({ org: 'org', repoId: 'repo1', prId: 42 });
         expect(updates.selected).toEqual({ org: 'org', repoId: 'repo1', prId: 42 });
         expect(view.title).toBe('Changes: #42');
         expect(view.revealCount).toBe(1);
@@ -150,6 +158,7 @@ describe('ReviewSession', () => {
 
         expect(changes.selected).toEqual({ org: 'org', repoId: 'repo1', prId: 99 });
         expect(comments.clearCount).toBe(1);
+        expect(comments.reviewMode).toBe(true);
         expect(view.revealCount).toBe(2);
     });
 
