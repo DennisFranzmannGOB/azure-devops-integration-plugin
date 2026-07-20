@@ -1112,9 +1112,21 @@ export async function getPrChanges(
 ): Promise<PrChange[]> {
     const compareTo = compareToIterationId !== undefined ? `&$compareTo=${compareToIterationId}` : '';
     const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/iterations/${iterationId}/changes?api-version=7.1${compareTo}`;
-    const body = await httpsGet(url, authHeaders(token));
-    const data = JSON.parse(body);
-    return (data.changeEntries ?? []) as PrChange[];
+    const changes: PrChange[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+        const pageUrl = continuationToken
+            ? `${url}&continuationToken=${encodeURIComponent(continuationToken)}`
+            : url;
+        const response = await httpsGetResponse(pageUrl, authHeaders(token));
+        const page = JSON.parse(response.body);
+        changes.push(...((page.changeEntries ?? []) as PrChange[]));
+        const header = response.headers?.['x-ms-continuationtoken'];
+        continuationToken = Array.isArray(header) ? header[0] : header;
+    } while (continuationToken);
+
+    return changes;
 }
 
 export async function getFileContent(
