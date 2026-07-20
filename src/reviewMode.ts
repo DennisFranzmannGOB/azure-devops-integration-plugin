@@ -15,19 +15,26 @@ export async function tryGetReviewModeUri(
     filePath: string,
 ): Promise<vscode.Uri | undefined> {
     if (!sourceBranch) { return undefined; }
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const [currentBranch, repoRoot] = await Promise.all([
-        getCurrentBranch(cwd),
-        getRepositoryRoot(cwd),
-    ]);
-    if (!currentBranch || currentBranch !== sourceBranch || !repoRoot) { return undefined; }
+    const workspaceRoots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [undefined];
     const relative = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-    const absolute = path.join(repoRoot, relative);
-    const fileUri = vscode.Uri.file(absolute);
-    try {
-        await vscode.workspace.fs.stat(fileUri);
-        return fileUri;
-    } catch {
-        return undefined;
+
+    for (const cwd of workspaceRoots) {
+        const [currentBranch, repoRoot] = await Promise.all([
+            getCurrentBranch(cwd),
+            getRepositoryRoot(cwd),
+        ]);
+        if (!currentBranch || currentBranch !== sourceBranch || !repoRoot) {
+            continue;
+        }
+
+        const fileUri = vscode.Uri.file(path.join(repoRoot, relative));
+        try {
+            await vscode.workspace.fs.stat(fileUri);
+            return fileUri;
+        } catch {
+            // This workspace folder is not the checked-out PR repository.
+        }
     }
+
+    return undefined;
 }

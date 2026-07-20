@@ -16,6 +16,10 @@ jest.mock('../api', () => ({
     updateThreadStatus: jest.fn(),
 }));
 
+jest.mock('../git', () => ({
+    getRepositoryRoot: jest.fn(),
+}));
+
 const api = jest.requireMock('../api') as {
     getPrThreads: jest.Mock;
     getPrIterations: jest.Mock;
@@ -23,6 +27,10 @@ const api = jest.requireMock('../api') as {
     addPullRequestFileComment: jest.Mock;
     replyToThread: jest.Mock;
     searchIdentitiesByDisplayName: jest.Mock;
+};
+
+const git = jest.requireMock('../git') as {
+    getRepositoryRoot: jest.Mock;
 };
 
 const auth = jest.requireMock('../auth') as {
@@ -136,9 +144,14 @@ describe('PrCommentController.changeStatus', () => {
         api.updateThreadStatus.mockResolvedValue(undefined);
         auth.getToken.mockReset();
         auth.getToken.mockResolvedValue('token');
+        git.getRepositoryRoot.mockReset();
+        git.getRepositoryRoot.mockImplementation(async (cwd: string) => cwd);
         (vscode.window.showErrorMessage as jest.Mock).mockReset();
         (vscode.workspace as any).textDocuments = [];
         (vscode.workspace as any).workspaceFolders = undefined;
+        (vscode.workspace as any).workspaceFile = undefined;
+        (vscode.workspace.fs.stat as jest.Mock).mockReset();
+        (vscode.workspace.fs.stat as jest.Mock).mockResolvedValue({});
         (vscode.comments.createCommentController as jest.Mock).mockClear();
     });
 
@@ -148,7 +161,7 @@ describe('PrCommentController.changeStatus', () => {
             dispose: jest.fn(),
         };
         const controller = buildController(mockVsThread);
-        (vscode.workspace as any).workspaceFolders = [{ uri: vscode.Uri.parse('file:///workspace') }];
+        (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: 'C:\\workspace' } }];
         api.getPrThreads.mockResolvedValue([makeThread()]);
 
         await controller.selectPr(makePullRequest(), 'org', true);
@@ -156,10 +169,92 @@ describe('PrCommentController.changeStatus', () => {
         const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
             .createCommentThread as jest.Mock;
         expect(createCommentThread).toHaveBeenCalledWith(
-            expect.objectContaining({ path: '/workspace/src/app.ts' }),
+            expect.objectContaining({ fsPath: 'C:\\workspace\\src\\app.ts' }),
             expect.anything(),
             expect.anything(),
         );
+    });
+
+    it('uses the workspace file directory instead of the first nested workspace folder', async () => {
+        const mockVsThread = {
+            comments: [],
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        (vscode.workspace as any).workspaceFolders = [
+            { uri: { fsPath: 'C:\\workspaces\\repository\\extensions\\first-module' } },
+        ];
+        (vscode.workspace as any).workspaceFile = {
+            fsPath: 'C:\\workspaces\\repository\\repository.code-workspace',
+        };
+        git.getRepositoryRoot.mockResolvedValue('C:\\workspaces\\repository');
+        api.getPrThreads.mockResolvedValue([makeThread({
+            threadContext: {
+                filePath: '/extensions/sample-module/src/Codeunit.al',
+                rightFileStart: { line: 10, offset: 1 },
+                rightFileEnd: { line: 10, offset: 1 },
+            },
+        })]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).toHaveBeenCalledWith(
+            expect.objectContaining({
+                fsPath: 'C:\\workspaces\\repository\\extensions\\sample-module\\src\\Codeunit.al',
+            }),
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it('uses a later workspace repository when the first one lacks the commented file', async () => {
+        const mockVsThread = {
+            comments: [],
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        (vscode.workspace as any).workspaceFolders = [
+            { uri: { fsPath: 'C:\\workspaces\\first-repository' } },
+            { uri: { fsPath: 'C:\\workspaces\\reviewed-repository' } },
+        ];
+        (vscode.workspace.fs.stat as jest.Mock).mockImplementation(async (uri: { fsPath: string }) => {
+            if (uri.fsPath.startsWith('C:\\workspaces\\first-repository')) {
+                throw new Error('ENOENT: not found');
+            }
+            return {};
+        });
+        api.getPrThreads.mockResolvedValue([makeThread({
+            threadContext: {
+                filePath: '/extensions/sample-module/src/Codeunit.al',
+                rightFileStart: { line: 10, offset: 1 },
+                rightFileEnd: { line: 10, offset: 1 },
+            },
+        })]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).toHaveBeenCalledWith(
+            expect.objectContaining({
+                fsPath: 'C:\\workspaces\\reviewed-repository\\extensions\\sample-module\\src\\Codeunit.al',
+            }),
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it('skips local placement when no workspace folder is open', async () => {
+        const controller = buildController({ dispose: jest.fn() });
+        api.getPrThreads.mockResolvedValue([makeThread()]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).not.toHaveBeenCalled();
     });
 
     it('calls updateThreadStatus with the requested status', async () => {

@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { EnrichedPullRequest, PrThread, getPrThreads, getPrIterations, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
+import { getRepositoryRoot } from './git';
 
 interface ThreadMeta {
     org: string;
@@ -88,7 +90,7 @@ export class PrCommentController implements vscode.Disposable {
         const cacheKey = `${org}/${project}/${repoId}/${prId}`;
         if (this.apiData.has(cacheKey)) {
             // Threads already loaded — re-run placement for any unplaced threads
-            this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
+            await this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
         } else {
             // loadThreads fetches data and calls placeThreadsForOpenDocs internally
             await this.loadThreads(org, project, repoId, prId);
@@ -111,7 +113,7 @@ export class PrCommentController implements vscode.Disposable {
 
         if (this.apiData.has(cacheKey)) {
             // API data already fetched — just place threads for this newly opened doc
-            this.placeThreadsForOpenDocs(cacheKey, ctx.org, ctx.project, ctx.repoId, ctx.prId);
+            await this.placeThreadsForOpenDocs(cacheKey, ctx.org, ctx.project, ctx.repoId, ctx.prId);
             return;
         }
 
@@ -138,7 +140,7 @@ export class PrCommentController implements vscode.Disposable {
             const apiThreads = await getPrThreads(org, project, repoId, prId, token, latestIterationId, latestIterationId,);
             if (loadGeneration !== this.loadGeneration) { return; }
             this.apiData.set(cacheKey, apiThreads);
-            this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
+            await this.placeThreadsForOpenDocs(cacheKey, org, project, repoId, prId);
         } catch {
             // silently fail
         } finally {
@@ -167,9 +169,9 @@ export class PrCommentController implements vscode.Disposable {
                 && this.selectedPr.prId === prId);
     }
 
-    private placeThreadsForOpenDocs(
+    private async placeThreadsForOpenDocs(
         cacheKey: string, org: string, project: string, repoId: string, prId: number
-    ): void {
+    ): Promise<void> {
         const apiThreads = this.apiData.get(cacheKey);
         if (!apiThreads) { return; }
 
@@ -184,7 +186,7 @@ export class PrCommentController implements vscode.Disposable {
             if (userComments.length === 0) { continue; }
 
             const vsThread = thread.threadContext?.filePath
-                ? this.placeFileThread(thread, userComments, org, project, repoId, prId)
+                ? await this.placeFileThread(thread, userComments, org, project, repoId, prId)
                 : undefined;
 
             if (vsThread) {
@@ -196,11 +198,11 @@ export class PrCommentController implements vscode.Disposable {
         }
     }
 
-    private placeFileThread(
+    private async placeFileThread(
         thread: PrThread,
         userComments: PrThread['comments'],
         org: string, project: string, repoId: string, prId: number
-    ): vscode.CommentThread | undefined {
+    ): Promise<vscode.CommentThread | undefined> {
         const ctx = thread.threadContext;
         if (!ctx) { return undefined; }
 
@@ -228,7 +230,7 @@ export class PrCommentController implements vscode.Disposable {
             return false;
         });
         const workspaceUri = !matchingDoc && side === 'right'
-            ? this.getWorkspaceFileUri(filePath, org, project, repoId, prId)
+            ? await this.getWorkspaceFileUri(filePath, org, project, repoId, prId)
             : undefined;
         const uri = matchingDoc?.uri ?? workspaceUri;
         if (!uri) { return undefined; }
@@ -237,26 +239,35 @@ export class PrCommentController implements vscode.Disposable {
         return this.createVsThread(uri, startLine, endLine, thread, userComments, meta);
     }
 
-    private getWorkspaceFileUri(
+    private async getWorkspaceFileUri(
         filePath: string,
         org: string,
         project: string,
         repoId: string,
         prId: number,
-    ): vscode.Uri | undefined {
+    ): Promise<vscode.Uri | undefined> {
         if (!this.selectedPr?.reviewMode || !this.isSelectedPr(org, project, repoId, prId)) {
             return undefined;
         }
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            return undefined;
+        const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+        const relativePath = filePath.split('/').filter(Boolean);
+        for (const workspaceFolder of workspaceFolders) {
+            const repositoryRoot = await getRepositoryRoot(workspaceFolder.uri.fsPath);
+            if (!repositoryRoot) {
+                continue;
+            }
+
+            const uri = vscode.Uri.file(path.join(repositoryRoot, ...relativePath));
+            try {
+                await vscode.workspace.fs.stat(uri);
+                return uri;
+            } catch {
+                // This workspace folder does not contain the commented file.
+            }
         }
 
-        return vscode.Uri.joinPath(
-            workspaceFolder.uri,
-            ...filePath.split('/').filter(Boolean),
-        );
+        return undefined;
     }
 
     private createVsThread(

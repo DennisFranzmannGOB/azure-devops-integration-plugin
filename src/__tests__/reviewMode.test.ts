@@ -98,4 +98,28 @@ describe('tryGetReviewModeUri', () => {
         expect(git.getCurrentBranch).toHaveBeenCalledWith('/my/workspace');
         expect(git.getRepositoryRoot).toHaveBeenCalledWith('/my/workspace');
     });
+
+    it('uses the workspace folder containing the reviewed file instead of the first folder', async () => {
+        (vscode.workspace as any).workspaceFolders = [
+            { uri: { fsPath: 'C:\\workspaces\\first-repository' } },
+            { uri: { fsPath: 'C:\\workspaces\\reviewed-repository' } },
+        ];
+        git.getCurrentBranch.mockResolvedValue('feature/review');
+        git.getRepositoryRoot.mockImplementation(async (cwd: string) => cwd);
+        (vscode.workspace.fs.stat as jest.Mock).mockImplementation(async (uri: { fsPath: string }) => {
+            if (uri.fsPath.startsWith('C:\\workspaces\\first-repository')) {
+                throw new Error('ENOENT: not found');
+            }
+            return {};
+        });
+
+        const result = await tryGetReviewModeUri(
+            'feature/review',
+            '/extensions/sample-extension/src/Codeunit.al',
+        );
+
+        expect(result?.fsPath).toBe(
+            'C:\\workspaces\\reviewed-repository\\extensions\\sample-extension\\src\\Codeunit.al',
+        );
+    });
 });
