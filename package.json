@@ -1,7 +1,7 @@
 {
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
-  "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
+  "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, and get actionable comment notifications.",
   "version": "1.1.2",
   "publisher": "lucacelea",
   "license": "MIT",
@@ -35,40 +35,44 @@
   "contributes": {
     "commands": [
       {
-        "command": "azureDevops.createPullRequest",
-        "title": "Azure DevOps: Create Pull Request"
-      },
-      {
         "command": "azureDevops.openRepository",
-        "title": "Azure DevOps: Open Repository"
+        "title": "Open Repository",
+        "category": "Azure DevOps: Workspace"
       },
       {
         "command": "azureDevops.openWorkItem",
-        "title": "Azure DevOps: Open Work Item"
+        "title": "Open Work Item",
+        "category": "Azure DevOps: Work Items"
       },
       {
         "command": "azureDevops.configureAuthentication",
-        "title": "Azure DevOps: Configure Authentication"
+        "title": "Configure Authentication",
+        "category": "Azure DevOps: Authentication"
       },
       {
         "command": "azureDevops.setToken",
-        "title": "Azure DevOps: Set Personal Access Token"
+        "title": "Set Personal Access Token",
+        "category": "Azure DevOps: Authentication"
       },
       {
         "command": "azureDevops.removeToken",
-        "title": "Azure DevOps: Remove Personal Access Token"
+        "title": "Remove Personal Access Token",
+        "category": "Azure DevOps: Authentication"
       },
       {
         "command": "azureDevops.loginAzureAd",
-        "title": "Azure DevOps: Login with Azure AD"
+        "title": "Login with Azure AD",
+        "category": "Azure DevOps: Authentication"
       },
       {
         "command": "azureDevops.logoutAzureAd",
-        "title": "Azure DevOps: Logout from Azure AD"
+        "title": "Logout from Azure AD",
+        "category": "Azure DevOps: Authentication"
       },
       {
         "command": "azureDevops.refreshPullRequests",
-        "title": "Azure DevOps: Refresh Pull Requests",
+        "title": "Refresh Pull Requests",
+        "category": "Azure DevOps: Pull Requests",
         "icon": "$(refresh)"
       },
       {
@@ -123,7 +127,8 @@
       },
       {
         "command": "azureDevops.editPrDescriptionFromPicker",
-        "title": "Azure DevOps: Edit Pull Request Description"
+        "title": "Edit Pull Request Description",
+        "category": "Azure DevOps: Pull Requests"
       },
       {
         "command": "azureDevops.checkoutPrBranch",
@@ -147,12 +152,14 @@
       },
       {
         "command": "azureDevops.resetReviewedFiles",
-        "title": "Azure DevOps: Reset Reviewed Files (this PR)",
+        "title": "Reset Reviewed Files (this PR)",
+        "category": "Azure DevOps: Review State",
         "icon": "$(discard)"
       },
       {
         "command": "azureDevops.clearAllReviewedFiles",
-        "title": "Azure DevOps: Clear All Reviewed Files Data"
+        "title": "Clear All Reviewed Files Data",
+        "category": "Azure DevOps: Review State"
       },
       {
         "command": "azureDevops.openPrFileDiff",
@@ -160,29 +167,35 @@
       },
       {
         "command": "azureDevops.nextPrChangedFile",
-        "title": "Azure DevOps: Show Next Changed File"
+        "title": "Show Next Changed File",
+        "category": "Azure DevOps: Review Navigation"
       },
       {
         "command": "azureDevops.previousPrChangedFile",
-        "title": "Azure DevOps: Show Previous Changed File"
+        "title": "Show Previous Changed File",
+        "category": "Azure DevOps: Review Navigation"
       },
       {
         "command": "azureDevops.togglePrFileReviewed",
-        "title": "Azure DevOps: Toggle Current File Reviewed"
+        "title": "Toggle Current File Reviewed",
+        "category": "Azure DevOps: Review State"
       },
       {
         "command": "azureDevops.filterPullRequests",
-        "title": "Azure DevOps: Filter Pull Requests",
+        "title": "Filter Pull Requests",
+        "category": "Azure DevOps: Pull Requests",
         "icon": "$(filter)"
       },
       {
         "command": "azureDevops.filterPullRequestsActive",
-        "title": "Azure DevOps: Filter Pull Requests",
+        "title": "Filter Pull Requests",
+        "category": "Azure DevOps: Pull Requests",
         "icon": "$(filter-filled)"
       },
       {
         "command": "azureDevops.sortPullRequests",
-        "title": "Azure DevOps: Sort Pull Requests",
+        "title": "Sort Pull Requests",
+        "category": "Azure DevOps: Pull Requests",
         "icon": "$(arrow-swap)"
       },
       {
@@ -261,7 +274,8 @@
       },
       {
         "command": "azureDevops.createTaskForPr",
-        "title": "Azure DevOps: Create Task for PR"
+        "title": "Create Task for PR",
+        "category": "Azure DevOps: Work Items"
       },
       {
         "command": "azureDevops.openCheckInBrowser",
@@ -349,17 +363,17 @@
         {
           "command": "azureDevops.inlineResolveThread",
           "group": "inline",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+          "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(active|pending)$/"
         },
         {
           "command": "azureDevops.inlineChangeThreadStatus",
           "group": "inline@1",
-          "when": "commentController == azureDevopsPrComments && commentThread == prCommentThread.active"
+          "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(active|pending)$/"
         },
         {
           "command": "azureDevops.inlineReactivateThread",
           "group": "inline",
-          "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(?!active)./"
+          "when": "commentController == azureDevopsPrComments && commentThread =~ /^prCommentThread\\.(fixed|wontFix|byDesign|closed)$/"
         }
       ],
       "commandPalette": [
@@ -589,6 +603,7 @@
         "azureDevops.authMethod": {
           "type": "string",
           "default": "auto",
+          "order": 10,
           "enum": [
             "auto",
             "pat",
@@ -604,95 +619,57 @@
         "azureDevops.organization": {
           "type": "string",
           "default": "",
+          "order": 20,
           "description": "Azure DevOps organization name. Auto-detected from git remote if not set."
         },
         "azureDevops.project": {
           "type": "string",
           "default": "",
+          "order": 30,
           "description": "Azure DevOps project name. Auto-detected from git remote if not set."
         },
         "azureDevops.repository": {
           "type": "string",
           "default": "",
+          "order": 40,
           "description": "Azure DevOps repository name. Auto-detected from git remote if not set."
         },
         "azureDevops.workItemProject": {
           "type": "string",
           "default": "",
+          "order": 50,
           "description": "Azure DevOps project for work items, if different from the repository's project. Falls back to azureDevops.project or the git remote's project."
         },
         "azureDevops.branchPrefix": {
           "type": "string",
           "default": "",
+          "order": 200,
           "description": "Personal branch prefix to strip when parsing branch names (e.g., 'lucac/')."
         },
         "azureDevops.workItemPattern": {
           "type": "string",
           "default": "",
+          "order": 210,
           "description": "Custom regex pattern to extract work item ID from branch name. Must contain a capture group for the ID. Leave empty to use default patterns."
-        },
-        "azureDevops.pullRequestLinkedWorkItemState": {
-          "type": "string",
-          "default": "",
-          "description": "Optional state to set on the work item linked during pull request creation (for example: 'To verify'). Leave empty to keep the current state."
         },
         "azureDevops.pullRequestRefreshInterval": {
           "type": "number",
           "default": 60,
+          "order": 100,
           "minimum": 30,
           "description": "Interval in seconds to auto-refresh the pull request list (minimum 30)."
         },
         "azureDevops.hideReviewedFiles": {
           "type": "boolean",
           "default": false,
+          "order": 130,
           "description": "Hide files you have marked as reviewed in the PR Changes tree view."
         },
-        "azureDevops.pullRequestAutoComplete": {
+        "azureDevops.autoMarkFilesReviewed": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically set auto-complete on newly created pull requests."
-        },
-        "azureDevops.pullRequestMergeStrategy": {
-          "type": "string",
-          "default": "squash",
-          "enum": [
-            "noFastForward",
-            "squash",
-            "rebase",
-            "rebaseMerge"
-          ],
-          "enumDescriptions": [
-            "Merge (no fast-forward)",
-            "Squash commit",
-            "Rebase and fast-forward",
-            "Semi-linear merge"
-          ],
-          "description": "Merge strategy to use when auto-completing a pull request."
-        },
-        "azureDevops.pullRequestDeleteSourceBranch": {
-          "type": "boolean",
-          "default": true,
-          "description": "Delete source branch after merging when auto-complete is set."
-        },
-        "azureDevops.pullRequestCompleteWorkItems": {
-          "type": "boolean",
-          "default": true,
-          "description": "Complete associated work items after merging when auto-complete is set."
-        },
-        "azureDevops.showAssignedWorkItems": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a work item picker during pull request creation, allowing you to select work items assigned to you to link to the PR. Items from the branch name are pre-selected."
-        },
-        "azureDevops.pullRequestAutoOpenInBrowser": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically open the pull request in the browser after creation."
-        },
-        "azureDevops.richCopyUrl": {
-          "type": "boolean",
-          "default": false,
-          "description": "Copy rich link with PR title to clipboard when copying pull request URL."
+          "order": 120,
+          "description": "Automatically mark a file as reviewed after its PR diff opens."
         },
         "azureDevops.notificationScope": {
           "type": "string",
@@ -707,16 +684,19 @@
             "Disable all notifications"
           ],
           "default": "all",
+          "order": 110,
           "description": "Controls which pull requests trigger comment notifications."
         },
         "azureDevops.team": {
           "type": "string",
           "default": "",
+          "order": 220,
           "description": "Azure DevOps team name used for sprint/iteration queries. Defaults to '{project} Team' if not set. Use the team segment from your sprint URL, for example 'koekoek' in '.../_sprints/taskboard/koekoek/...'."
         },
         "azureDevops.taskState": {
           "type": "string",
           "default": "",
+          "order": 230,
           "description": "Optional state to set on newly created Task work items, for example 'Active'. Leave empty to use the process default state."
         }
       }
