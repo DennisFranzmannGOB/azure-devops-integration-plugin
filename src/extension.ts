@@ -489,11 +489,15 @@ export function activate(context: vscode.ExtensionContext) {
             return prCommentController.changeStatus(thread, 'fixed');
         }),
         vscode.commands.registerCommand('azureDevops.inlineChangeThreadStatus', async (thread: vscode.CommentThread) => {
-            const choices: Array<vscode.QuickPickItem & { status: ThreadStatus }> = [
+            const currentStatus = thread.contextValue?.replace('prCommentThread.', '');
+            const allChoices: Array<vscode.QuickPickItem & { status: ThreadStatus }> = [
                 { label: 'Pending', status: 'pending' },
                 { label: "Won't Fix", status: 'wontFix' },
+                { label: 'By Design', status: 'byDesign' },
                 { label: 'Closed', status: 'closed' },
+                { label: 'Active', status: 'active' },
             ];
+            const choices = allChoices.filter(({ status }) => status !== currentStatus);
             const choice = await vscode.window.showQuickPick(choices, { placeHolder: 'Set thread status' });
             if (choice) {
                 await prCommentController.changeStatus(thread, choice.status);

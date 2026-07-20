@@ -276,11 +276,32 @@ describe('extension PR switching cleanup', () => {
             expect.arrayContaining([
                 expect.objectContaining({ label: 'Pending', status: 'pending' }),
                 expect.objectContaining({ label: "Won't Fix", status: 'wontFix' }),
+                expect.objectContaining({ label: 'By Design', status: 'byDesign' }),
                 expect.objectContaining({ label: 'Closed', status: 'closed' }),
             ]),
             expect.objectContaining({ placeHolder: 'Set thread status' }),
         );
         expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'pending');
+    });
+
+    it('offers pending inline threads every status except pending itself', async () => {
+        const changeInlineThreadStatus = getRegisteredCommand('azureDevops.inlineChangeThreadStatus');
+        const thread = { contextValue: 'prCommentThread.pending' } as vscode.CommentThread;
+        (vscode.window.showQuickPick as jest.Mock).mockResolvedValue({ label: 'Active', status: 'active' });
+
+        await changeInlineThreadStatus(thread);
+
+        const [choices] = (vscode.window.showQuickPick as jest.Mock).mock.calls.at(-1);
+        expect(choices).toEqual(expect.arrayContaining([
+            expect.objectContaining({ label: 'Active', status: 'active' }),
+            expect.objectContaining({ label: "Won't Fix", status: 'wontFix' }),
+            expect.objectContaining({ label: 'By Design', status: 'byDesign' }),
+            expect.objectContaining({ label: 'Closed', status: 'closed' }),
+        ]));
+        expect(choices).not.toEqual(expect.arrayContaining([
+            expect.objectContaining({ label: 'Pending', status: 'pending' }),
+        ]));
+        expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'active');
     });
 
     it('reloads inline comments whenever a PR file diff opens', async () => {
