@@ -245,6 +245,10 @@ export function activate(context: vscode.ExtensionContext) {
             && left.filePath === right.filePath;
     }
 
+    function isStaleTreeItemError(error: unknown): boolean {
+        return error instanceof Error && error.message.startsWith('Cannot resolve tree item for element');
+    }
+
     function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
         const requestedFile = getCurrentActivePrFileContext();
         if (!requestedFile) {
@@ -266,7 +270,14 @@ export function activate(context: vscode.ExtensionContext) {
             const autoMarksReviewed = reviewConfiguration.get<boolean>('autoMarkFilesReviewed', false);
             const hidesReviewed = reviewConfiguration.get<boolean>('hideReviewedFiles', false);
             if (!autoMarksReviewed || !hidesReviewed) {
-                await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+                try {
+                    await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+                } catch (error) {
+                    // Opening a prior diff can refresh the tree before a queued navigation reveals its item.
+                    if (!isStaleTreeItemError(error)) {
+                        throw error;
+                    }
+                }
             }
             await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
 

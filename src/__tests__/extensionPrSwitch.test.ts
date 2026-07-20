@@ -438,6 +438,23 @@ describe('extension PR switching cleanup', () => {
         expect(prChangesTree.reveal).toHaveBeenCalledWith(nextFile, { select: true, focus: false, expand: true });
     });
 
+    it('opens the next file when a refresh invalidates its tree item before reveal completes', async () => {
+        const nextChangedFile = getRegisteredCommand('azureDevops.nextPrChangedFile');
+        const nextFile = {
+            change: { changeType: 'edit', item: { path: '/src/next.ts' } },
+        };
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
+        mockPrChangesProvider.getAdjacentFile.mockResolvedValue(nextFile);
+        (vscode.window as any).activeTextEditor = { document: { uri: {} } };
+        const { parsePrFileUri } = jest.requireMock('../prContentProvider') as { parsePrFileUri: jest.Mock };
+        parsePrFileUri.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42, filePath: '/src/current.ts' });
+        prChangesTree.reveal.mockRejectedValue(new Error('Cannot resolve tree item for element /src/next.ts'));
+
+        await expect(nextChangedFile()).resolves.toBeUndefined();
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('azureDevops.openPrFileDiff', nextFile);
+    });
+
     it('advances through consecutive files when next navigation is triggered rapidly', async () => {
         const nextChangedFile = getRegisteredCommand('azureDevops.nextPrChangedFile');
         const nextFile = {
