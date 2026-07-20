@@ -20,16 +20,21 @@ const mockPrChangesProvider = {
     addGeneralComment: jest.fn(),
     onIterationResolved: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     resetCurrentPr: jest.fn(),
+    getAdjacentFile: jest.fn(),
+    getFileItem: jest.fn(),
+    setReviewed: jest.fn(),
 };
 
 const mockPrCommentController = {
     loadExisting: jest.fn(),
     clearAll: jest.fn(),
+    selectPr: jest.fn().mockResolvedValue(undefined),
     refreshAll: jest.fn(),
     replyToThread: jest.fn(),
     changeStatus: jest.fn(),
     registerReviewModeFile: jest.fn(),
     getReviewModeFileInfo: jest.fn(),
+    getReviewModeFileContext: jest.fn(),
     isReviewModeFile: jest.fn().mockReturnValue(false),
     onDidAddComment: jest.fn().mockReturnValue({ dispose: jest.fn() }),
     dispose: jest.fn(),
@@ -73,6 +78,7 @@ jest.mock('../prContentProvider', () => ({
     PrContentProvider: jest.fn().mockImplementation(() => ({})),
     buildPrFileUri: jest.fn(() => 'azuredevops-pr://org/proj/repo/commit/path'),
     buildEmptyPrFileUri: jest.fn(() => 'azuredevops-pr://empty/empty'),
+    parsePrFileUri: jest.fn(),
 }));
 jest.mock('../prComments', () => ({
     PrCommentController: jest.fn().mockImplementation(() => mockPrCommentController),
@@ -125,6 +131,7 @@ function getRegisteredCommand(commandId: string): (...args: any[]) => any {
 describe('extension PR switching cleanup', () => {
     let handlers: { openComment: (event: any) => Promise<void> } | undefined;
     let branchMatchHandler: ((item: any) => Promise<void> | void) | undefined;
+    let prChangesTree: { reveal: jest.Mock };
 
     beforeEach(() => {
         jest.clearAllMocks();
@@ -141,17 +148,29 @@ describe('extension PR switching cleanup', () => {
         mockPrChangesProvider.getSelectedPrContext.mockReturnValue(undefined);
         mockCheckoutPrBranch.mockResolvedValue(true);
         mockPrCommentController.isReviewModeFile.mockReturnValue(false);
+        mockPrChangesProvider.getAdjacentFile.mockReset();
+        mockPrChangesProvider.getFileItem.mockReset();
+        mockPrChangesProvider.setReviewed.mockReset();
         mockDiscussionNavigator.clear.mockReset();
         mockDiscussionNavigator.openThread.mockReset();
         mockDiscussionNavigator.openThreadById.mockReset();
+        const { tryGetReviewModeUri } = jest.requireMock('../reviewMode') as { tryGetReviewModeUri: jest.Mock };
+        tryGetReviewModeUri.mockResolvedValue(undefined);
 
-        (vscode.window as any).createTreeView = jest.fn().mockReturnValue({ title: 'PR Changes', dispose: jest.fn(), onDidChangeCheckboxState: jest.fn().mockReturnValue({ dispose: jest.fn() }) });
+        prChangesTree = { reveal: jest.fn().mockResolvedValue(undefined) };
+        (vscode.window as any).createTreeView = jest.fn().mockReturnValue({
+            title: 'PR Changes',
+            dispose: jest.fn(),
+            reveal: prChangesTree.reveal,
+            onDidChangeCheckboxState: jest.fn().mockReturnValue({ dispose: jest.fn() }),
+        });
         (vscode.window as any).onDidChangeActiveTextEditor = jest.fn().mockReturnValue({ dispose: jest.fn() });
         (vscode.workspace as any).registerTextDocumentContentProvider = jest.fn().mockReturnValue({ dispose: jest.fn() });
         (vscode.workspace as any).registerFileSystemProvider = jest.fn().mockReturnValue({ dispose: jest.fn() });
         (vscode.workspace as any).textDocuments = [];
         (vscode.commands.executeCommand as jest.Mock).mockReset();
         (vscode.commands.registerCommand as jest.Mock).mockClear();
+        (vscode.window as any).activeTextEditor = undefined;
 
         activate({ secrets: {}, subscriptions: [], workspaceState: { get: jest.fn().mockReturnValue({}), update: jest.fn(), keys: jest.fn().mockReturnValue([]) } } as any);
     });
@@ -240,6 +259,24 @@ describe('extension PR switching cleanup', () => {
         expect(mockPrCommentController.refreshAll).not.toHaveBeenCalled();
     });
 
+    it('changes an inline thread to the status selected from the status picker', async () => {
+        const changeInlineThreadStatus = getRegisteredCommand('azureDevops.inlineChangeThreadStatus');
+        const thread = {} as vscode.CommentThread;
+        (vscode.window.showQuickPick as jest.Mock).mockResolvedValue({ label: 'Pending', status: 'pending' });
+
+        await changeInlineThreadStatus(thread);
+
+        expect(vscode.window.showQuickPick).toHaveBeenCalledWith(
+            expect.arrayContaining([
+                expect.objectContaining({ label: 'Pending', status: 'pending' }),
+                expect.objectContaining({ label: "Won't Fix", status: 'wontFix' }),
+                expect.objectContaining({ label: 'Closed', status: 'closed' }),
+            ]),
+            expect.objectContaining({ placeHolder: 'Set thread status' }),
+        );
+        expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'pending');
+    });
+
     it('reloads inline comments whenever a PR file diff opens', async () => {
         const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
         const fileItem = {
@@ -262,6 +299,68 @@ describe('extension PR switching cleanup', () => {
             '/src/app.ts',
         );
         expect(mockPrCommentController.refreshAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('enables PR diff keybindings after registering a review-mode file', async () => {
+        const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
+        const reviewModeUri = { toString: () => 'file:///repo/src/app.ts' };
+        const { tryGetReviewModeUri } = jest.requireMock('../reviewMode') as { tryGetReviewModeUri: jest.Mock };
+        tryGetReviewModeUri.mockResolvedValue(reviewModeUri);
+        (vscode.window as any).activeTextEditor = { document: { uri: reviewModeUri } };
+        mockPrCommentController.isReviewModeFile.mockReturnValue(true);
+
+        await openPrFileDiff({
+            change: { changeType: 'edit', item: { path: '/src/app.ts' } },
+            sourceBranch: 'feature/example',
+            org: 'org',
+            project: 'proj',
+            repoId: 'repo1',
+            sourceCommitId: 'source',
+            targetCommitId: 'target',
+            prId: 42,
+        });
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'setContext',
+            'azureDevops.prDiffActive',
+            true,
+        );
+    });
+
+    it('opens and reveals the next changed file from the active PR diff', async () => {
+        const nextChangedFile = getRegisteredCommand('azureDevops.nextPrChangedFile');
+        const nextFile = {
+            change: { changeType: 'edit', item: { path: '/src/next.ts' } },
+        };
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
+        mockPrChangesProvider.getAdjacentFile.mockResolvedValue(nextFile);
+        (vscode.window as any).activeTextEditor = { document: { uri: {} } };
+        const { parsePrFileUri } = jest.requireMock('../prContentProvider') as { parsePrFileUri: jest.Mock };
+        parsePrFileUri.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42, filePath: '/src/current.ts' });
+
+        await nextChangedFile();
+
+        expect(mockPrChangesProvider.getAdjacentFile).toHaveBeenCalledWith('/src/current.ts', 'next');
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith('azureDevops.openPrFileDiff', nextFile);
+        expect(prChangesTree.reveal).toHaveBeenCalledWith(nextFile, { select: true, focus: false, expand: true });
+    });
+
+    it('toggles the reviewed state of the active PR diff file', async () => {
+        const toggleReviewed = getRegisteredCommand('azureDevops.togglePrFileReviewed');
+        const currentFile = {
+            change: { changeType: 'edit', item: { path: '/src/current.ts' } },
+            checkboxState: vscode.TreeItemCheckboxState.Unchecked,
+        };
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
+        mockPrChangesProvider.getFileItem.mockResolvedValue(currentFile);
+        (vscode.window as any).activeTextEditor = { document: { uri: {} } };
+        const { parsePrFileUri } = jest.requireMock('../prContentProvider') as { parsePrFileUri: jest.Mock };
+        parsePrFileUri.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42, filePath: '/src/current.ts' });
+
+        await toggleReviewed();
+
+        expect(mockPrChangesProvider.getFileItem).toHaveBeenCalledWith('/src/current.ts');
+        expect(mockPrChangesProvider.setReviewed).toHaveBeenCalledWith(currentFile, true);
     });
 
     it('switches review state after checking out a different PR branch', async () => {

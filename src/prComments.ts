@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { PrThread, getPrThreads, getPrIterations, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
+import { EnrichedPullRequest, PrThread, getPrThreads, getPrIterations, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
@@ -20,6 +20,14 @@ interface ReviewModeFileContext {
     filePath: string;
 }
 
+interface SelectedPrCommentContext {
+    org: string;
+    project: string;
+    repoId: string;
+    prId: number;
+    reviewMode: boolean;
+}
+
 export class PrCommentController implements vscode.Disposable {
     private readonly controller: vscode.CommentController;
     private readonly secretStorage: vscode.SecretStorage;
@@ -31,6 +39,7 @@ export class PrCommentController implements vscode.Disposable {
     private readonly disposables: vscode.Disposable[] = [];
     private readonly threadMeta = new WeakMap<vscode.CommentThread, ThreadMeta>();
     private readonly reviewModeFiles = new Map<string, ReviewModeFileContext>();
+    private selectedPr?: SelectedPrCommentContext;
 
     private readonly _onDidAddComment = new vscode.EventEmitter<void>();
     readonly onDidAddComment = this._onDidAddComment.event;
@@ -66,6 +75,9 @@ export class PrCommentController implements vscode.Disposable {
         fileUri: vscode.Uri,
         org: string, project: string, repoId: string, prId: number, filePath: string
     ): Promise<void> {
+        if (!this.isSelectedPr(org, project, repoId, prId)) {
+            return;
+        }
         this.reviewModeFiles.set(fileUri.toString(), { org, project, repoId, prId, filePath });
 
         // Re-assign commentingRangeProvider so VS Code re-queries provideCommentingRanges
@@ -93,6 +105,7 @@ export class PrCommentController implements vscode.Disposable {
     private async onDocumentOpen(doc: vscode.TextDocument): Promise<void> {
         const ctx = parsePrFileUri(doc.uri);
         if (!ctx?.prId) { return; }
+        if (!this.isSelectedPr(ctx.org, ctx.project, ctx.repoId, ctx.prId)) { return; }
 
         const cacheKey = `${ctx.org}/${ctx.project}/${ctx.repoId}/${ctx.prId}`;
 
@@ -112,6 +125,7 @@ export class PrCommentController implements vscode.Disposable {
         if (this.loadingKeys.has(cacheKey) || this.apiData.has(cacheKey)) {
             return;
         }
+
         this.loadingKeys.add(cacheKey);
         const loadGeneration = this.loadGeneration;
 
@@ -132,6 +146,25 @@ export class PrCommentController implements vscode.Disposable {
                 this.loadingKeys.delete(cacheKey);
             }
         }
+    }
+
+    async selectPr(pr: EnrichedPullRequest, org: string, reviewMode = false): Promise<void> {
+        this.selectedPr = {
+            org,
+            project: pr.repository?.project?.name ?? '',
+            repoId: pr.repository?.id ?? '',
+            prId: pr.pullRequestId,
+            reviewMode,
+        };
+        await this.refreshAll();
+    }
+
+    private isSelectedPr(org: string, project: string, repoId: string, prId: number): boolean {
+        return !this.selectedPr
+            || (this.selectedPr.org === org
+                && this.selectedPr.project === project
+                && this.selectedPr.repoId === repoId
+                && this.selectedPr.prId === prId);
     }
 
     private placeThreadsForOpenDocs(
@@ -194,10 +227,36 @@ export class PrCommentController implements vscode.Disposable {
             }
             return false;
         });
-        if (!matchingDoc) { return undefined; }
+        const workspaceUri = !matchingDoc && side === 'right'
+            ? this.getWorkspaceFileUri(filePath, org, project, repoId, prId)
+            : undefined;
+        const uri = matchingDoc?.uri ?? workspaceUri;
+        if (!uri) { return undefined; }
 
         const meta = { org, project, repoId, prId, threadId: thread.id };
-        return this.createVsThread(matchingDoc.uri, startLine, endLine, thread, userComments, meta);
+        return this.createVsThread(uri, startLine, endLine, thread, userComments, meta);
+    }
+
+    private getWorkspaceFileUri(
+        filePath: string,
+        org: string,
+        project: string,
+        repoId: string,
+        prId: number,
+    ): vscode.Uri | undefined {
+        if (!this.selectedPr?.reviewMode || !this.isSelectedPr(org, project, repoId, prId)) {
+            return undefined;
+        }
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            return undefined;
+        }
+
+        return vscode.Uri.joinPath(
+            workspaceFolder.uri,
+            ...filePath.split('/').filter(Boolean),
+        );
     }
 
     private createVsThread(
@@ -352,6 +411,10 @@ export class PrCommentController implements vscode.Disposable {
         return ctx ? { org: ctx.org, prId: ctx.prId } : undefined;
     }
 
+    getReviewModeFileContext(uri: vscode.Uri): ReviewModeFileContext | undefined {
+        return this.reviewModeFiles.get(uri.toString());
+    }
+
     async refreshAll(): Promise<void> {
         // Preserve registrations for open review-mode documents. Refreshing must wait
         // for current threads to be recreated so replies posted from PR Changes are
@@ -359,8 +422,8 @@ export class PrCommentController implements vscode.Disposable {
         const savedReviewModeFiles = [...this.reviewModeFiles.entries()].filter(([uriString]) =>
             vscode.workspace.textDocuments.some((doc) => doc.uri.toString() === uriString)
         );
-        this.clearAll();
-
+        this.clearCommentData();
+        this.reviewModeFiles.clear();
         for (const [uriString, context] of savedReviewModeFiles) {
             this.reviewModeFiles.set(uriString, context);
         }
@@ -370,6 +433,9 @@ export class PrCommentController implements vscode.Disposable {
         for (const doc of vscode.workspace.textDocuments) {
             const parsed = parsePrFileUri(doc.uri);
             if (parsed?.prId) {
+                if (!this.isSelectedPr(parsed.org, parsed.project, parsed.repoId, parsed.prId)) {
+                    continue;
+                }
                 const cacheKey = `${parsed.org}/${parsed.project}/${parsed.repoId}/${parsed.prId}`;
                 contexts.set(cacheKey, {
                     org: parsed.org,
@@ -382,10 +448,20 @@ export class PrCommentController implements vscode.Disposable {
             }
 
             const reviewModeContext = this.reviewModeFiles.get(doc.uri.toString());
-            if (reviewModeContext) {
+            if (reviewModeContext && this.isSelectedPr(
+                reviewModeContext.org,
+                reviewModeContext.project,
+                reviewModeContext.repoId,
+                reviewModeContext.prId,
+            )) {
                 const cacheKey = `${reviewModeContext.org}/${reviewModeContext.project}/${reviewModeContext.repoId}/${reviewModeContext.prId}`;
                 contexts.set(cacheKey, reviewModeContext);
             }
+        }
+
+        if (this.selectedPr) {
+            const cacheKey = `${this.selectedPr.org}/${this.selectedPr.project}/${this.selectedPr.repoId}/${this.selectedPr.prId}`;
+            contexts.set(cacheKey, { ...this.selectedPr, filePath: '' });
         }
 
         await Promise.all([...contexts.values()].map((context) =>
@@ -393,7 +469,7 @@ export class PrCommentController implements vscode.Disposable {
         ));
     }
 
-    clearAll(): void {
+    private clearCommentData(): void {
         this.loadGeneration++;
         this.loadingKeys.clear();
         for (const threads of this.vsThreads.values()) {
@@ -402,7 +478,12 @@ export class PrCommentController implements vscode.Disposable {
         this.vsThreads.clear();
         this.apiData.clear();
         this.placedThreadIds.clear();
+    }
+
+    clearAll(): void {
+        this.clearCommentData();
         this.reviewModeFiles.clear();
+        this.selectedPr = undefined;
     }
 
     dispose(): void {

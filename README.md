@@ -23,7 +23,11 @@ Each PR displays rich status information:
 
 Click any PR to open its `PR Changes` view in VS Code. Changed files can expand to show file-level discussion threads, and general PR comments are grouped under a `General Comments` node. From the thread context menu you can reply, resolve, reactivate, or mark a thread as `Won't Fix` or `By Design`. Use the PR context menu to open the PR in Azure DevOps, add comments, or edit the PR description when needed.
 
+In an inline code comment, active threads have a quick Resolve button and a Change Status menu for Pending, Won't Fix, or Closed. Non-active threads offer Reactivate.
+
 When viewing a PR diff, approve, reject, and wait-for-author buttons appear in the editor title bar for quick voting without leaving the diff.
+
+When viewing a PR diff, use `Alt+OEM_COMMA` and `Alt+OEM_PERIOD` to open the previous and next visible changed files. Use `Alt+R` to toggle whether the current file is reviewed.
 
 The PR context menu also includes **Edit Title**, which opens an input box pre-filled with the current pull request title and updates the PR immediately after confirmation.
 
@@ -81,6 +85,9 @@ Open the Command Palette (`Cmd+Shift+P`) and type "Azure DevOps" to access:
 | **Azure DevOps: Set Personal Access Token** | Configure your PAT for API access. |
 | **Azure DevOps: Remove Personal Access Token** | Remove your stored PAT. |
 | **Azure DevOps: Refresh Pull Requests** | Manually refresh the PR sidebar. |
+| **Azure DevOps: Show Next Changed File** | Opens the next visible changed file from the active PR diff. |
+| **Azure DevOps: Show Previous Changed File** | Opens the previous visible changed file from the active PR diff. |
+| **Azure DevOps: Toggle Current File Reviewed** | Toggles the reviewed state of the active PR diff file. |
 
 The PR sidebar context menu also includes **Edit Title**, which opens an input box pre-filled with the current pull request title and updates the PR immediately after confirmation.
 

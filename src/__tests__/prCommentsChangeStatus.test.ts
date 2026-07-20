@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { PrCommentController } from '../prComments';
-import { PrThread } from '../api';
+import { EnrichedPullRequest, PrThread } from '../api';
 
 jest.mock('../auth', () => ({
     getToken: jest.fn().mockResolvedValue('token'),
@@ -68,6 +68,25 @@ function makeThreadWithReply(): PrThread {
     });
 }
 
+function makePullRequest(): EnrichedPullRequest {
+    return {
+        pullRequestId: 42,
+        title: 'Review PR',
+        sourceRefName: 'refs/heads/feature/review',
+        createdBy: { displayName: 'Author', id: 'author-id' },
+        reviewers: [],
+        repository: { id: 'repo1', name: 'repo', project: { id: 'project-id', name: 'proj' } },
+        status: 'active',
+        isDraft: false,
+        url: '',
+        unresolvedCommentCount: 1,
+        commentThreads: [],
+        checksStatus: 'none',
+        checks: [],
+        workItems: [],
+    };
+}
+
 /** Build a controller whose createCommentThread returns a specific mock thread object. */
 function buildController(mockVsThread: Record<string, unknown>): PrCommentController {
     const mockController = {
@@ -119,7 +138,28 @@ describe('PrCommentController.changeStatus', () => {
         auth.getToken.mockResolvedValue('token');
         (vscode.window.showErrorMessage as jest.Mock).mockReset();
         (vscode.workspace as any).textDocuments = [];
+        (vscode.workspace as any).workspaceFolders = undefined;
         (vscode.comments.createCommentController as jest.Mock).mockClear();
+    });
+
+    it('places right-side comments for checked-out files before they are opened', async () => {
+        const mockVsThread = {
+            comments: [],
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        (vscode.workspace as any).workspaceFolders = [{ uri: vscode.Uri.parse('file:///workspace') }];
+        api.getPrThreads.mockResolvedValue([makeThread()]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).toHaveBeenCalledWith(
+            expect.objectContaining({ path: '/workspace/src/app.ts' }),
+            expect.anything(),
+            expect.anything(),
+        );
     });
 
     it('calls updateThreadStatus with the requested status', async () => {
@@ -307,6 +347,20 @@ describe('PrCommentController review-mode file tracking', () => {
         const uri = vscode.Uri.parse('file:///repo/src/app.ts');
         await controller.registerReviewModeFile(uri, 'myorg', 'proj', 'repo1', 99, '/src/app.ts');
         expect(controller.getReviewModeFileInfo(uri)).toEqual({ org: 'myorg', prId: 99 });
+    });
+
+    it('getReviewModeFileContext returns the active file details for a registered URI', async () => {
+        const controller = buildController({});
+        const uri = vscode.Uri.parse('file:///repo/src/app.ts');
+        await controller.registerReviewModeFile(uri, 'myorg', 'proj', 'repo1', 99, '/src/app.ts');
+
+        expect(controller.getReviewModeFileContext(uri)).toEqual({
+            org: 'myorg',
+            project: 'proj',
+            repoId: 'repo1',
+            prId: 99,
+            filePath: '/src/app.ts',
+        });
     });
 
     it('isReviewModeFile returns false after clearAll', async () => {

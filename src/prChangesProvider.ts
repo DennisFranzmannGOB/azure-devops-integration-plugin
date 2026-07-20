@@ -30,6 +30,7 @@ export function sameSelectedPrContext(
 }
 
 export type PrChangesTreeItem = PrFileItem | PrFolderItem | PrCommentThreadItem | PrCommentReplyItem | PrGeneralCommentsItem;
+export type PrChangeNavigationDirection = 'next' | 'previous';
 
 // --- Tree item types ---
 
@@ -288,6 +289,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private selectionGeneration = 0;
     private readonly secretStorage: vscode.SecretStorage;
     private readonly reviewedStore?: ReviewedFilesStore;
+    private allFileItems: PrFileItem[] = [];
+    private visibleFileItems: PrFileItem[] = [];
+    private readonly parentItems = new Map<PrChangesTreeItem, PrChangesTreeItem | undefined>();
 
     constructor(
         secretStorage: vscode.SecretStorage,
@@ -314,6 +318,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedPr = pr;
         this.selectedOrg = org;
         this.currentIterationId = undefined;
+        this.clearFileItems();
         this._onDidChangeTreeData.fire();
 
         return switchedPr;
@@ -321,6 +326,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
     refresh(): void {
         this.selectionGeneration++;
+        this.clearFileItems();
         this._onDidChangeTreeData.fire();
     }
 
@@ -329,6 +335,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedPr = undefined;
         this.selectedOrg = undefined;
         this.currentIterationId = undefined;
+        this.clearFileItems();
         this._onIterationResolved.fire(undefined);
         this._onDidChangeTreeData.fire();
     }
@@ -350,8 +357,43 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this._onDidChangeTreeData.fire();
     }
 
+    async getAdjacentFile(
+        filePath: string,
+        direction: PrChangeNavigationDirection,
+    ): Promise<PrFileItem | undefined> {
+        await this.getRootItems();
+        const currentIndex = this.allFileItems.findIndex((item) => item.change.item.path === filePath);
+        if (currentIndex === -1) {
+            return undefined;
+        }
+
+        const visiblePaths = new Set(this.visibleFileItems.map((item) => item.change.item.path));
+        const increment = direction === 'next' ? 1 : -1;
+        for (
+            let index = currentIndex + increment;
+            index >= 0 && index < this.allFileItems.length;
+            index += increment
+        ) {
+            const candidate = this.allFileItems[index];
+            if (visiblePaths.has(candidate.change.item.path)) {
+                return candidate;
+            }
+        }
+
+        return undefined;
+    }
+
+    async getFileItem(filePath: string): Promise<PrFileItem | undefined> {
+        await this.getRootItems();
+        return this.allFileItems.find((item) => item.change.item.path === filePath);
+    }
+
     getTreeItem(element: PrChangesTreeItem): vscode.TreeItem {
         return element;
+    }
+
+    getParent(element: PrChangesTreeItem): PrChangesTreeItem | undefined {
+        return this.parentItems.get(element);
     }
 
     getChildren(element?: PrChangesTreeItem): Promise<PrChangesTreeItem[]> | PrChangesTreeItem[] {
@@ -375,6 +417,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
     private async getRootItems(): Promise<PrChangesTreeItem[]> {
         if (!this.selectedPr || !this.selectedOrg) {
+            this.clearFileItems();
             return [];
         }
 
@@ -458,9 +501,8 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             const sourceBranch = pr.sourceRefName?.replace(/^refs\/heads\//, '') ?? '';
 
             // Build file items with thread children
-            const fileItems = changes
+            const allFileItems = changes
                 .filter(c => c.item?.path)
-                .filter(c => !(hideReviewed && reviewed.has(c.item.path)))
                 .map(c => {
                     const item = new PrFileItem(
                         c, org, project, repoId, sourceCommitId, targetCommitId, pr.pullRequestId, sourceBranch,
@@ -485,6 +527,15 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                     }
                     return item;
                 });
+            const visibleFileItems = hideReviewed
+                ? allFileItems.filter((item) => !reviewed.has(item.change.item.path))
+                : allFileItems;
+            const allFileTree = buildFolderTree(allFileItems);
+            const visibleFileTree = hideReviewed ? buildFolderTree(visibleFileItems) : allFileTree;
+            this.allFileItems = collectAllFiles(allFileTree);
+            this.visibleFileItems = hideReviewed
+                ? collectAllFiles(visibleFileTree)
+                : this.allFileItems;
 
             const rootItems: PrChangesTreeItem[] = [];
 
@@ -498,14 +549,51 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             }
 
             // Nest files in a folder tree
-            rootItems.push(...buildFolderTree(fileItems));
+            rootItems.push(...visibleFileTree);
+            this.setTreeParents(rootItems);
 
             return rootItems;
         } catch (error: unknown) {
             if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
+            this.clearFileItems();
             const message = error instanceof Error ? error.message : 'Unknown error';
             vscode.window.showErrorMessage(`Failed to load PR changes: ${message}`);
             return [];
+        }
+    }
+
+    private clearFileItems(): void {
+        this.allFileItems = [];
+        this.visibleFileItems = [];
+        this.parentItems.clear();
+    }
+
+    private setTreeParents(rootItems: PrChangesTreeItem[]): void {
+        this.parentItems.clear();
+        for (const item of rootItems) {
+            this.setTreeItemParent(item);
+        }
+    }
+
+    private setTreeItemParent(item: PrChangesTreeItem, parent?: PrChangesTreeItem): void {
+        this.parentItems.set(item, parent);
+
+        if (item instanceof PrFolderItem) {
+            for (const child of item.children) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrFileItem) {
+            for (const child of item.children ?? []) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrCommentThreadItem) {
+            for (const child of item.replyItems) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrGeneralCommentsItem) {
+            for (const child of item.children) {
+                this.setTreeItemParent(child, item);
+            }
         }
     }
 
