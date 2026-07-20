@@ -291,6 +291,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private readonly reviewedStore?: ReviewedFilesStore;
     private allFileItems: PrFileItem[] = [];
     private visibleFileItems: PrFileItem[] = [];
+    private hasLoadedFileItems = false;
     private readonly parentItems = new Map<PrChangesTreeItem, PrChangesTreeItem | undefined>();
 
     constructor(
@@ -361,7 +362,11 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         filePath: string,
         direction: PrChangeNavigationDirection,
     ): Promise<PrFileItem | undefined> {
-        await this.getRootItems();
+        if (!this.hasLoadedFileItems) {
+            await this.getRootItems();
+        } else {
+            this.updateVisibleFileItems();
+        }
         const currentIndex = this.allFileItems.findIndex((item) => item.change.item.path === filePath);
         if (currentIndex === -1) {
             return undefined;
@@ -536,6 +541,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             this.visibleFileItems = hideReviewed
                 ? collectAllFiles(visibleFileTree)
                 : this.allFileItems;
+            this.hasLoadedFileItems = true;
 
             const rootItems: PrChangesTreeItem[] = [];
 
@@ -565,7 +571,24 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private clearFileItems(): void {
         this.allFileItems = [];
         this.visibleFileItems = [];
+        this.hasLoadedFileItems = false;
         this.parentItems.clear();
+    }
+
+    private updateVisibleFileItems(): void {
+        if (!this.selectedPr) {
+            this.visibleFileItems = [];
+            return;
+        }
+
+        const hideReviewed = vscode.workspace.getConfiguration('azureDevops').get<boolean>('hideReviewedFiles', false);
+        if (!hideReviewed) {
+            this.visibleFileItems = this.allFileItems;
+            return;
+        }
+
+        const reviewed = this.reviewedStore?.getReviewedFiles(this.selectedPr.pullRequestId) ?? new Set<string>();
+        this.visibleFileItems = this.allFileItems.filter((item) => !reviewed.has(item.change.item.path));
     }
 
     private setTreeParents(rootItems: PrChangesTreeItem[]): void {

@@ -189,7 +189,22 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(prChangesTree);
 
-    function getActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+    interface ActivePrFileContext {
+        org: string;
+        repoId: string;
+        prId: number;
+        filePath: string;
+    }
+
+    interface PrChangedFileNavigation {
+        requestedFile: ActivePrFileContext;
+        targetFilePath: string;
+    }
+
+    let prChangedFileNavigationQueue: Promise<void> = Promise.resolve();
+    let lastPrChangedFileNavigation: PrChangedFileNavigation | undefined;
+
+    function getActivePrFileContext(): ActivePrFileContext | undefined {
         const uri = vscode.window.activeTextEditor?.document.uri;
         if (!uri) {
             return undefined;
@@ -208,7 +223,7 @@ export function activate(context: vscode.ExtensionContext) {
         return prCommentController.getReviewModeFileContext(uri);
     }
 
-    function getCurrentActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+    function getCurrentActivePrFileContext(): ActivePrFileContext | undefined {
         const activeFile = getActivePrFileContext();
         const selectedPr = prChangesProvider.getSelectedPrContext();
         if (
@@ -225,20 +240,45 @@ export function activate(context: vscode.ExtensionContext) {
         return activeFile;
     }
 
-    async function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
-        const activeFile = getCurrentActivePrFileContext();
-        if (!activeFile) {
-            return;
+    function isSamePrFileContext(left: ActivePrFileContext, right: ActivePrFileContext): boolean {
+        return left.org === right.org
+            && left.repoId === right.repoId
+            && left.prId === right.prId
+            && left.filePath === right.filePath;
+    }
+
+    function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
+        const requestedFile = getCurrentActivePrFileContext();
+        if (!requestedFile) {
+            return Promise.resolve();
         }
 
-        const adjacentFile = await prChangesProvider.getAdjacentFile(activeFile.filePath, direction);
-        if (!adjacentFile) {
-            safeShowInformationMessage(`No ${direction} changed file.`);
-            return;
-        }
+        const navigation = prChangedFileNavigationQueue.then(async () => {
+            const filePath = lastPrChangedFileNavigation
+                && isSamePrFileContext(lastPrChangedFileNavigation.requestedFile, requestedFile)
+                ? lastPrChangedFileNavigation.targetFilePath
+                : requestedFile.filePath;
+            const adjacentFile = await prChangesProvider.getAdjacentFile(filePath, direction);
+            if (!adjacentFile) {
+                safeShowInformationMessage(`No ${direction} changed file.`);
+                return;
+            }
 
-        await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
-        await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+            const reviewConfiguration = vscode.workspace.getConfiguration('azureDevops');
+            const autoMarksReviewed = reviewConfiguration.get<boolean>('autoMarkFilesReviewed', false);
+            const hidesReviewed = reviewConfiguration.get<boolean>('hideReviewedFiles', false);
+            if (!autoMarksReviewed || !hidesReviewed) {
+                await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+            }
+            await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
+
+            lastPrChangedFileNavigation = {
+                requestedFile,
+                targetFilePath: adjacentFile.change.item.path,
+            };
+        });
+        prChangedFileNavigationQueue = navigation.catch(() => undefined);
+        return navigation;
     }
 
     async function toggleActivePrFileReviewed(): Promise<void> {
@@ -479,6 +519,10 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath}`);
             }
 
+            if (vscode.workspace.getConfiguration('azureDevops').get<boolean>('autoMarkFilesReviewed', false)) {
+                prChangesProvider.setReviewed(fileItem, true);
+            }
+
             // When using a real file for the modified side (review mode), register it with the
             // comment controller so comment creation and placement work on the real document.
             if (reviewModeUri && change.changeType !== 'delete') {
@@ -491,7 +535,10 @@ export function activate(context: vscode.ExtensionContext) {
 
             // A diff can reuse an already-open document. Reload thread data so it
             // includes replies added since this PR was last opened.
-            await prCommentController.refreshAll();
+            void prCommentController.refreshAll().catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                safeShowErrorMessage(`Failed to refresh inline comments: ${message}`);
+            });
         }),
     );
 

@@ -412,6 +412,9 @@ describe('Reviewed files / checkbox state', () => {
 
             expect(next?.change.item.path).toBe('/src/z-folder/z.ts');
             expect(previous?.change.item.path).toBe('/src/z-folder/z.ts');
+            expect(api.getPrIterations).toHaveBeenCalledTimes(1);
+            expect(api.getPrChanges).toHaveBeenCalledTimes(1);
+            expect(api.getPrThreads).toHaveBeenCalledTimes(1);
         });
 
         it('skips reviewed files when they are hidden', async () => {

@@ -151,6 +151,8 @@ All settings are optional — the extension auto-detects values from your git re
 | `azureDevops.pullRequestCompleteWorkItems` | `true` | Complete associated work items after merge when auto-complete is set |
 | `azureDevops.showAssignedWorkItems` | `true` | Show a work item picker during PR creation to select assigned work items to link |
 | `azureDevops.pullRequestRefreshInterval` | `60` | Auto-refresh interval in seconds (minimum 30) |
+| `azureDevops.hideReviewedFiles` | `false` | Hide files you have marked as reviewed in the PR Changes tree view |
+| `azureDevops.autoMarkFilesReviewed` | `false` | Automatically mark a file reviewed after its PR diff opens |
 | `azureDevops.pullRequestAutoOpenInBrowser` | `false` | Automatically open the pull request in the browser after creation |
 | `azureDevops.richCopyUrl` | `false` | Copy a rich link with the PR title when copying the pull request URL |
 | `azureDevops.notificationScope` | `all` | Which PRs trigger notifications: `all` (all visible PRs), `participating` (only PRs you created or are assigned to), or `off` (no notifications) |
