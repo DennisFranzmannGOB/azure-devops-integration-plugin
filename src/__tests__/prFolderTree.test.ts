@@ -125,6 +125,20 @@ describe('Folder tree — PrFolderItem building', () => {
         expect(children[0]).toBeInstanceOf(PrFileItem);
     });
 
+    it('returns a file parent so the tree can reveal and select it', async () => {
+        api.getPrChanges.mockResolvedValue([
+            makeChange('/src/app.ts'),
+        ]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        const root = await provider.getChildren();
+        const folder = root[0] as PrFolderItem;
+        const file = (await provider.getChildren(folder))[0] as PrFileItem;
+
+        expect(provider.getParent(file)).toBe(folder);
+    });
+
     it('sorts folder nodes before file nodes at the same level', async () => {
         api.getPrChanges.mockResolvedValue([
             makeChange('/README.md'),

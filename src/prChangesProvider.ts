@@ -291,6 +291,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private readonly reviewedStore?: ReviewedFilesStore;
     private allFileItems: PrFileItem[] = [];
     private visibleFileItems: PrFileItem[] = [];
+    private readonly parentItems = new Map<PrChangesTreeItem, PrChangesTreeItem | undefined>();
 
     constructor(
         secretStorage: vscode.SecretStorage,
@@ -389,6 +390,10 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
     getTreeItem(element: PrChangesTreeItem): vscode.TreeItem {
         return element;
+    }
+
+    getParent(element: PrChangesTreeItem): PrChangesTreeItem | undefined {
+        return this.parentItems.get(element);
     }
 
     getChildren(element?: PrChangesTreeItem): Promise<PrChangesTreeItem[]> | PrChangesTreeItem[] {
@@ -545,6 +550,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
 
             // Nest files in a folder tree
             rootItems.push(...visibleFileTree);
+            this.setTreeParents(rootItems);
 
             return rootItems;
         } catch (error: unknown) {
@@ -559,6 +565,36 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private clearFileItems(): void {
         this.allFileItems = [];
         this.visibleFileItems = [];
+        this.parentItems.clear();
+    }
+
+    private setTreeParents(rootItems: PrChangesTreeItem[]): void {
+        this.parentItems.clear();
+        for (const item of rootItems) {
+            this.setTreeItemParent(item);
+        }
+    }
+
+    private setTreeItemParent(item: PrChangesTreeItem, parent?: PrChangesTreeItem): void {
+        this.parentItems.set(item, parent);
+
+        if (item instanceof PrFolderItem) {
+            for (const child of item.children) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrFileItem) {
+            for (const child of item.children ?? []) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrCommentThreadItem) {
+            for (const child of item.replyItems) {
+                this.setTreeItemParent(child, item);
+            }
+        } else if (item instanceof PrGeneralCommentsItem) {
+            for (const child of item.children) {
+                this.setTreeItemParent(child, item);
+            }
+        }
     }
 
     private isCurrentSelection(
