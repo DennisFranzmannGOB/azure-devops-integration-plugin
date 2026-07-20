@@ -1114,17 +1114,23 @@ export async function getPrChanges(
     const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/iterations/${iterationId}/changes?api-version=7.1${compareTo}`;
     const changes: PrChange[] = [];
     let continuationToken: string | undefined;
+    let nextSkip: number | undefined;
 
     do {
         const pageUrl = continuationToken
             ? `${url}&continuationToken=${encodeURIComponent(continuationToken)}`
-            : url;
+            : nextSkip !== undefined
+                ? `${url}&$skip=${nextSkip}`
+                : url;
         const response = await httpsGetResponse(pageUrl, authHeaders(token));
         const page = JSON.parse(response.body);
         changes.push(...((page.changeEntries ?? []) as PrChange[]));
         const header = response.headers?.['x-ms-continuationtoken'];
         continuationToken = Array.isArray(header) ? header[0] : header;
-    } while (continuationToken);
+        nextSkip = !continuationToken && typeof page.nextSkip === 'number' && Number.isInteger(page.nextSkip)
+            ? page.nextSkip
+            : undefined;
+    } while (continuationToken || nextSkip !== undefined);
 
     return changes;
 }
