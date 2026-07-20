@@ -27,6 +27,8 @@ In an inline code comment, active threads have a quick Resolve button and a Chan
 
 When viewing a PR diff, approve, reject, and wait-for-author buttons appear in the editor title bar for quick voting without leaving the diff.
 
+When viewing a PR diff, use `Alt+OEM_COMMA` and `Alt+OEM_PERIOD` to open the previous and next visible changed files. Use `Alt+R` to toggle whether the current file is reviewed.
+
 The PR context menu also includes **Edit Title**, which opens an input box pre-filled with the current pull request title and updates the PR immediately after confirmation.
 
 When a policy check is backed by an Azure DevOps build validation run, clicking that check opens the pipeline results page directly in your browser.
@@ -83,6 +85,9 @@ Open the Command Palette (`Cmd+Shift+P`) and type "Azure DevOps" to access:
 | **Azure DevOps: Set Personal Access Token** | Configure your PAT for API access. |
 | **Azure DevOps: Remove Personal Access Token** | Remove your stored PAT. |
 | **Azure DevOps: Refresh Pull Requests** | Manually refresh the PR sidebar. |
+| **Azure DevOps: Show Next Changed File** | Opens the next visible changed file from the active PR diff. |
+| **Azure DevOps: Show Previous Changed File** | Opens the previous visible changed file from the active PR diff. |
+| **Azure DevOps: Toggle Current File Reviewed** | Toggles the reviewed state of the active PR diff file. |
 
 The PR sidebar context menu also includes **Edit Title**, which opens an input box pre-filled with the current pull request title and updates the PR immediately after confirmation.
 

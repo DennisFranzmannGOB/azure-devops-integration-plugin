@@ -411,6 +411,10 @@ export class PrCommentController implements vscode.Disposable {
         return ctx ? { org: ctx.org, prId: ctx.prId } : undefined;
     }
 
+    getReviewModeFileContext(uri: vscode.Uri): ReviewModeFileContext | undefined {
+        return this.reviewModeFiles.get(uri.toString());
+    }
+
     async refreshAll(): Promise<void> {
         // Preserve registrations for open review-mode documents. Refreshing must wait
         // for current threads to be recreated so replies posted from PR Changes are

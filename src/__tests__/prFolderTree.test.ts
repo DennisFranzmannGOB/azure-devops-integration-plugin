@@ -373,4 +373,81 @@ describe('Reviewed files / checkbox state', () => {
             get: jest.fn().mockImplementation((_key: string, def?: unknown) => def),
         });
     });
+
+    describe('PR change navigation', () => {
+        beforeEach(() => {
+            api.getPrIterations.mockReset();
+            api.getPrThreads.mockReset();
+            api.getPrChanges.mockReset();
+            setupIterations();
+            api.getPrThreads.mockResolvedValue([]);
+        });
+
+        it('moves through files in the rendered PR Changes tree order', async () => {
+            api.getPrChanges.mockResolvedValue([
+                makeChange('/src/z-folder/z.ts'),
+                makeChange('/src/a-folder/a.ts'),
+                makeChange('/src/root.ts'),
+            ]);
+
+            const provider = new PrChangesProvider({} as any);
+            provider.selectPr(makePr(), 'org');
+
+            const next = await provider.getAdjacentFile('/src/a-folder/a.ts', 'next');
+            const previous = await provider.getAdjacentFile('/src/root.ts', 'previous');
+
+            expect(next?.change.item.path).toBe('/src/z-folder/z.ts');
+            expect(previous?.change.item.path).toBe('/src/z-folder/z.ts');
+        });
+
+        it('skips reviewed files when they are hidden', async () => {
+            api.getPrChanges.mockResolvedValue([
+                makeChange('/src/a.ts'),
+                makeChange('/src/b.ts'),
+                makeChange('/src/c.ts'),
+            ]);
+            (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+                get: jest.fn().mockImplementation((key: string, def: unknown) =>
+                    key === 'hideReviewedFiles' ? true : def
+                ),
+            });
+
+            const provider = new PrChangesProvider({} as any, makeMockStore(['/src/b.ts']) as any);
+            provider.selectPr(makePr(), 'org');
+
+            const next = await provider.getAdjacentFile('/src/a.ts', 'next');
+            const previous = await provider.getAdjacentFile('/src/c.ts', 'previous');
+
+            expect(next?.change.item.path).toBe('/src/c.ts');
+            expect(previous?.change.item.path).toBe('/src/a.ts');
+
+            (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+                get: jest.fn().mockImplementation((_key: string, def?: unknown) => def),
+            });
+        });
+
+        it('navigates forward from a newly hidden active file', async () => {
+            api.getPrChanges.mockResolvedValue([
+                makeChange('/src/a.ts'),
+                makeChange('/src/b.ts'),
+                makeChange('/src/c.ts'),
+            ]);
+            (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+                get: jest.fn().mockImplementation((key: string, def: unknown) =>
+                    key === 'hideReviewedFiles' ? true : def
+                ),
+            });
+
+            const provider = new PrChangesProvider({} as any, makeMockStore(['/src/b.ts']) as any);
+            provider.selectPr(makePr(), 'org');
+
+            const next = await provider.getAdjacentFile('/src/b.ts', 'next');
+
+            expect(next?.change.item.path).toBe('/src/c.ts');
+
+            (vscode.workspace.getConfiguration as jest.Mock).mockReturnValue({
+                get: jest.fn().mockImplementation((_key: string, def?: unknown) => def),
+            });
+        });
+    });
 });

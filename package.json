@@ -2,7 +2,7 @@
   "name": "azure-devops-integration",
   "displayName": "Azure DevOps Integration",
   "description": "A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by Created by me, Assigned to me, and My teams, review changes and discussions, get actionable comment notifications, and create PRs with linked work items.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publisher": "lucacelea",
   "license": "MIT",
   "icon": "icon.png",
@@ -159,6 +159,18 @@
         "title": "Open Diff"
       },
       {
+        "command": "azureDevops.nextPrChangedFile",
+        "title": "Azure DevOps: Show Next Changed File"
+      },
+      {
+        "command": "azureDevops.previousPrChangedFile",
+        "title": "Azure DevOps: Show Previous Changed File"
+      },
+      {
+        "command": "azureDevops.togglePrFileReviewed",
+        "title": "Azure DevOps: Toggle Current File Reviewed"
+      },
+      {
         "command": "azureDevops.filterPullRequests",
         "title": "Azure DevOps: Filter Pull Requests",
         "icon": "$(filter)"
@@ -279,6 +291,23 @@
         "command": "azureDevops.editorWaitForAuthorPr",
         "title": "Azure DevOps: Wait for Author",
         "icon": "$(eye)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "azureDevops.previousPrChangedFile",
+        "key": "alt+oem_comma",
+        "when": "azureDevops.prDiffActive"
+      },
+      {
+        "command": "azureDevops.nextPrChangedFile",
+        "key": "alt+oem_period",
+        "when": "azureDevops.prDiffActive"
+      },
+      {
+        "command": "azureDevops.togglePrFileReviewed",
+        "key": "alt+r",
+        "when": "azureDevops.prDiffActive"
       }
     ],
     "viewsContainers": {

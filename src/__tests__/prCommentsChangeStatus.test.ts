@@ -349,6 +349,20 @@ describe('PrCommentController review-mode file tracking', () => {
         expect(controller.getReviewModeFileInfo(uri)).toEqual({ org: 'myorg', prId: 99 });
     });
 
+    it('getReviewModeFileContext returns the active file details for a registered URI', async () => {
+        const controller = buildController({});
+        const uri = vscode.Uri.parse('file:///repo/src/app.ts');
+        await controller.registerReviewModeFile(uri, 'myorg', 'proj', 'repo1', 99, '/src/app.ts');
+
+        expect(controller.getReviewModeFileContext(uri)).toEqual({
+            org: 'myorg',
+            project: 'proj',
+            repoId: 'repo1',
+            prId: 99,
+            filePath: '/src/app.ts',
+        });
+    });
+
     it('isReviewModeFile returns false after clearAll', async () => {
         const controller = buildController({});
         const uri = vscode.Uri.parse('file:///repo/src/app.ts');

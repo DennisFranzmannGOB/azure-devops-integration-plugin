@@ -17,7 +17,7 @@ import {
     PrCommentThreadItem,
     sameSelectedPrContext,
 } from './prChangesProvider';
-import { PrContentProvider, buildEmptyPrFileUri, buildPrFileUri } from './prContentProvider';
+import { PrContentProvider, buildEmptyPrFileUri, buildPrFileUri, parsePrFileUri } from './prContentProvider';
 import { PrCommentController } from './prComments';
 import { PrCommentDocProvider, PR_COMMENT_SCHEME } from './prCommentDocProvider';
 import { DiscussionNavigator } from './discussionNavigation';
@@ -42,6 +42,14 @@ export function activate(context: vscode.ExtensionContext) {
     function safeShowErrorMessage(message: string): void {
         try {
             void vscode.window.showErrorMessage(message);
+        } catch {
+            // Guard against VS Code window-layer notification errors.
+        }
+    }
+
+    function safeShowInformationMessage(message: string): void {
+        try {
+            void vscode.window.showInformationMessage(message);
         } catch {
             // Guard against VS Code window-layer notification errors.
         }
@@ -181,6 +189,76 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(prChangesTree);
 
+    function getActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+        const uri = vscode.window.activeTextEditor?.document.uri;
+        if (!uri) {
+            return undefined;
+        }
+
+        const virtualFile = parsePrFileUri(uri);
+        if (virtualFile?.prId !== undefined) {
+            return {
+                org: virtualFile.org,
+                repoId: virtualFile.repoId,
+                prId: virtualFile.prId,
+                filePath: virtualFile.filePath,
+            };
+        }
+
+        return prCommentController.getReviewModeFileContext(uri);
+    }
+
+    function getCurrentActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+        const activeFile = getActivePrFileContext();
+        const selectedPr = prChangesProvider.getSelectedPrContext();
+        if (
+            !activeFile
+            || !selectedPr
+            || activeFile.org !== selectedPr.org
+            || activeFile.repoId !== selectedPr.repoId
+            || activeFile.prId !== selectedPr.prId
+        ) {
+            safeShowWarningMessage('The active editor is not part of the selected pull request.');
+            return undefined;
+        }
+
+        return activeFile;
+    }
+
+    async function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
+        const activeFile = getCurrentActivePrFileContext();
+        if (!activeFile) {
+            return;
+        }
+
+        const adjacentFile = await prChangesProvider.getAdjacentFile(activeFile.filePath, direction);
+        if (!adjacentFile) {
+            safeShowInformationMessage(`No ${direction} changed file.`);
+            return;
+        }
+
+        await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
+        await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+    }
+
+    async function toggleActivePrFileReviewed(): Promise<void> {
+        const activeFile = getCurrentActivePrFileContext();
+        if (!activeFile) {
+            return;
+        }
+
+        const fileItem = await prChangesProvider.getFileItem(activeFile.filePath);
+        if (!fileItem) {
+            safeShowWarningMessage('The active file is not in the PR Changes list.');
+            return;
+        }
+
+        const checkboxState = fileItem.checkboxState;
+        const isReviewed = checkboxState === vscode.TreeItemCheckboxState.Checked
+            || (typeof checkboxState === 'object' && checkboxState.state === vscode.TreeItemCheckboxState.Checked);
+        prChangesProvider.setReviewed(fileItem, !isReviewed);
+    }
+
     prChangesProvider.onIterationResolved(iterationId => {
         reviewSession.setIteration(iterationId);
     });
@@ -300,6 +378,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.refreshPrChanges', () => {
             return reviewSession.refresh();
         }),
+        vscode.commands.registerCommand('azureDevops.nextPrChangedFile', () => navigatePrChangedFile('next')),
+        vscode.commands.registerCommand('azureDevops.previousPrChangedFile', () => navigatePrChangedFile('previous')),
+        vscode.commands.registerCommand('azureDevops.togglePrFileReviewed', () => toggleActivePrFileReviewed()),
         prChangesTree.onDidChangeCheckboxState(e => {
             for (const [item, state] of e.items) {
                 if (item instanceof PrFileItem) {
@@ -405,6 +486,7 @@ export function activate(context: vscode.ExtensionContext) {
                     reviewModeUri, fileItem.org, fileItem.project, fileItem.repoId,
                     fileItem.prId, filePath,
                 );
+                updatePrDiffContext();
             }
 
             // A diff can reuse an already-open document. Reload thread data so it
