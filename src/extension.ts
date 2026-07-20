@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { createPullRequest } from './commands/createPr';
 import { openRepository } from './commands/openRepo';
 import { openWorkItem } from './commands/openWorkItem';
 import { configureAuthentication, setToken, removeToken, loginWithAzureAd, logoutFromAzureAd } from './auth';
@@ -73,7 +72,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevops.createPullRequest', () => createPullRequest(secretStorage)),
         vscode.commands.registerCommand('azureDevops.createTaskForPr', () => createTaskForPr(secretStorage)),
         vscode.commands.registerCommand('azureDevops.openRepository', openRepository),
         vscode.commands.registerCommand('azureDevops.openWorkItem', openWorkItem),

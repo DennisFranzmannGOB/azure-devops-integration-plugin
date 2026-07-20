@@ -40,7 +40,7 @@ describe("editMarkdownViaTempFile", () => {
       const result = await editMarkdownViaTempFile("", {
         infoMessage: "Edit the PR description, then close the tab to submit. Clear all text to skip.",
         confirmActionLabel: "Open Editor",
-        cancelActionLabel: "Cancel Create PR",
+        cancelActionLabel: "Cancel",
       });
 
       expect(vscode.workspace.openTextDocument).toHaveBeenCalled();
@@ -69,14 +69,14 @@ describe("editMarkdownViaTempFile", () => {
 
   it("returns undefined without opening the editor when the cancel action is chosen", async () => {
     (vscode.window.showInformationMessage as jest.Mock).mockResolvedValueOnce(
-      "Cancel Create PR",
+      "Cancel",
     );
 
     const result = await editMarkdownViaTempFile("Some template content", {
       infoMessage:
-        "Open the PR description in a temporary tab. Close that tab to continue, or cancel PR creation now.",
+        "Open the PR description in a temporary tab. Close that tab to continue, or cancel editing now.",
       confirmActionLabel: "Open Editor",
-      cancelActionLabel: "Cancel Create PR",
+      cancelActionLabel: "Cancel",
     });
 
     expect(result).toBeUndefined();

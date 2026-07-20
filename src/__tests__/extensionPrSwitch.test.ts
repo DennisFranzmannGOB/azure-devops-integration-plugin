@@ -61,7 +61,6 @@ jest.mock('../commands/checkoutBranch', () => ({
     checkoutPrBranch: (...args: unknown[]) => mockCheckoutPrBranch(...args),
 }));
 
-jest.mock('../commands/createPr', () => ({ createPullRequest: jest.fn() }));
 jest.mock('../commands/openRepo', () => ({ openRepository: jest.fn() }));
 jest.mock('../commands/openWorkItem', () => ({ openWorkItem: jest.fn() }));
 jest.mock('../auth', () => ({
@@ -173,6 +172,13 @@ describe('extension PR switching cleanup', () => {
         (vscode.window as any).activeTextEditor = undefined;
 
         activate({ secrets: {}, subscriptions: [], workspaceState: { get: jest.fn().mockReturnValue({}), update: jest.fn(), keys: jest.fn().mockReturnValue([]) } } as any);
+    });
+
+    it('does not register the retired pull request authoring command', () => {
+        expect(vscode.commands.registerCommand).not.toHaveBeenCalledWith(
+            'azureDevops.createPullRequest',
+            expect.any(Function),
+        );
     });
 
     it('clears inline comment threads when review switches to another PR', async () => {

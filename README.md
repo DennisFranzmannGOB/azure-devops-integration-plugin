@@ -1,6 +1,6 @@
 # Azure DevOps Integration for VS Code
 
-A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by "Created by me," "Assigned to me," and "My teams," review changes and discussion in a unified tree, inspect linked work items, create PRs, and edit PR titles and descriptions without leaving the editor.
+A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by "Created by me," "Assigned to me," and "My teams," review changes and discussion in a unified tree, inspect linked work items, and edit PR titles and descriptions without leaving the editor.
 
 ## Features
 
@@ -76,7 +76,6 @@ Open the Command Palette (`Cmd+Shift+P`) and type "Azure DevOps" to access:
 
 | Command | Description |
 |---------|-------------|
-| **Azure DevOps: Create Pull Request** | Creates a PR from the current branch. In multi-root workspaces, prompts you to choose which repository to use. Checks that the branch is pushed to origin first, offering to push if not. Automatically links detected work items, strips the configured personal branch prefix from the suggested title, appends selected work item titles to the description, and applies a repository PR template when available. |
 | **Azure DevOps: Create Task for PR** | Creates a Task work item in the current sprint under a selected parent (User Story, Bug, or Enabler). Assigns it to you, suggests a title from the current branch, and links it to the current branch's pull request when one is found. |
 | **Azure DevOps: Open Repository** | Opens the repository in Azure DevOps. |
 | **Azure DevOps: Open Work Item** | Opens a work item by ID. Pre-fills the detected ID from the current branch. |
@@ -142,19 +141,11 @@ All settings are optional — the extension auto-detects values from your git re
 | `azureDevops.workItemProject` | Same as project | Project for work items, if different from the repo's project |
 | `azureDevops.team` | `"{project} Team"` | Azure DevOps team used when querying the current sprint/iteration for task creation. This should match the team segment from your sprint board URL, for example `stackportal` in `.../_sprints/taskboard/stackportal/...` |
 | `azureDevops.taskState` | `""` | Optional initial state for newly created Task work items, for example `Active`. Leave empty to use the process default |
-| `azureDevops.branchPrefix` | `""` | Personal branch prefix to strip (e.g., `lucac/`) when parsing branch names and generating the default PR title |
+| `azureDevops.branchPrefix` | `""` | Personal branch prefix to strip (e.g., `lucac/`) when generating task titles |
 | `azureDevops.workItemPattern` | Built-in patterns | Custom regex to extract work item ID from branch name |
-| `azureDevops.pullRequestLinkedWorkItemState` | `""` | Optional state to set on linked work item when creating a PR (leave empty to disable) |
-| `azureDevops.pullRequestAutoComplete` | `false` | Automatically set auto-complete on newly created pull requests |
-| `azureDevops.pullRequestMergeStrategy` | `squash` | Merge strategy to use when auto-completing a pull request |
-| `azureDevops.pullRequestDeleteSourceBranch` | `true` | Delete the source branch after merge when auto-complete is set |
-| `azureDevops.pullRequestCompleteWorkItems` | `true` | Complete associated work items after merge when auto-complete is set |
-| `azureDevops.showAssignedWorkItems` | `true` | Show a work item picker during PR creation to select assigned work items to link |
 | `azureDevops.pullRequestRefreshInterval` | `60` | Auto-refresh interval in seconds (minimum 30) |
 | `azureDevops.hideReviewedFiles` | `false` | Hide files you have marked as reviewed in the PR Changes tree view |
 | `azureDevops.autoMarkFilesReviewed` | `false` | Automatically mark a file reviewed after its PR diff opens |
-| `azureDevops.pullRequestAutoOpenInBrowser` | `false` | Automatically open the pull request in the browser after creation |
-| `azureDevops.richCopyUrl` | `false` | Copy a rich link with the PR title when copying the pull request URL |
 | `azureDevops.notificationScope` | `all` | Which PRs trigger notifications: `all` (all visible PRs), `participating` (only PRs you created or are assigned to), or `off` (no notifications) |
 
 ## Requirements

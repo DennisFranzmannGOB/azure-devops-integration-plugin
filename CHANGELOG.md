@@ -4,6 +4,12 @@ All notable changes to the "Azure DevOps Integration" extension will be document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Removed
+
+- **Pull request authoring**: the `Azure DevOps: Create Pull Request` command and its creation-only settings have been removed. The extension now focuses on reviewing existing pull requests.
+
 ## [1.0.0] - 2026-04-03
 
 ### Added
