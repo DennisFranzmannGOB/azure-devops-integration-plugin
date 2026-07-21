@@ -1,6 +1,6 @@
 # Azure DevOps Integration for VS Code
 
-A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by "Created by me," "Assigned to me," and "My teams," review changes and discussion in a unified tree, inspect linked work items, create PRs, and edit PR titles and descriptions without leaving the editor.
+A VS Code extension for Azure DevOps. Browse pull requests in a sidebar grouped by "Created by me," "Assigned to me," and "My teams," review changes and discussion in a unified tree, inspect linked work items, and edit PR titles and descriptions without leaving the editor.
 
 ## Features
 
@@ -56,7 +56,7 @@ The detected work item is shown in the **status bar** (e.g., `WI #1234`) and cli
 
 ### Sprint Task Creation
 
-Use **Azure DevOps: Create Task for PR** to create a Task in the active sprint without leaving VS Code.
+Use **Azure DevOps: Work Items: Create Task for PR** to create a Task in the active sprint without leaving VS Code.
 
 - In multi-root workspaces, the command first asks which repository to use
 - The extension looks up the current iteration for your configured team
@@ -76,18 +76,23 @@ Open the Command Palette (`Cmd+Shift+P`) and type "Azure DevOps" to access:
 
 | Command | Description |
 |---------|-------------|
-| **Azure DevOps: Create Pull Request** | Creates a PR from the current branch. In multi-root workspaces, prompts you to choose which repository to use. Checks that the branch is pushed to origin first, offering to push if not. Automatically links detected work items, strips the configured personal branch prefix from the suggested title, appends selected work item titles to the description, and applies a repository PR template when available. |
-| **Azure DevOps: Create Task for PR** | Creates a Task work item in the current sprint under a selected parent (User Story, Bug, or Enabler). Assigns it to you, suggests a title from the current branch, and links it to the current branch's pull request when one is found. |
-| **Azure DevOps: Open Repository** | Opens the repository in Azure DevOps. |
-| **Azure DevOps: Open Work Item** | Opens a work item by ID. Pre-fills the detected ID from the current branch. |
-| **Azure DevOps: Edit Pull Request Description** | Lets you pick one of your authored pull requests, opens its current description in a temporary markdown editor, and updates the PR when you close the tab. |
-| **Azure DevOps: Configure Authentication** | Choose Azure AD sign-in or PAT setup from one place. |
-| **Azure DevOps: Set Personal Access Token** | Configure your PAT for API access. |
-| **Azure DevOps: Remove Personal Access Token** | Remove your stored PAT. |
-| **Azure DevOps: Refresh Pull Requests** | Manually refresh the PR sidebar. |
-| **Azure DevOps: Show Next Changed File** | Opens the next visible changed file from the active PR diff. |
-| **Azure DevOps: Show Previous Changed File** | Opens the previous visible changed file from the active PR diff. |
-| **Azure DevOps: Toggle Current File Reviewed** | Toggles the reviewed state of the active PR diff file. |
+| **Azure DevOps: Authentication: Configure Authentication** | Choose Azure AD sign-in or PAT setup from one place. |
+| **Azure DevOps: Authentication: Login with Azure AD** | Sign in with your Microsoft account. |
+| **Azure DevOps: Authentication: Logout from Azure AD** | Show how to remove the Microsoft account session from VS Code. |
+| **Azure DevOps: Authentication: Set Personal Access Token** | Configure a PAT for API access. |
+| **Azure DevOps: Authentication: Remove Personal Access Token** | Remove the stored PAT. |
+| **Azure DevOps: Pull Requests: Refresh Pull Requests** | Manually refresh the PR sidebar. |
+| **Azure DevOps: Pull Requests: Filter Pull Requests** | Filter the PR sidebar by review state. |
+| **Azure DevOps: Pull Requests: Sort Pull Requests** | Change the PR sidebar sort order. |
+| **Azure DevOps: Pull Requests: Edit Pull Request Description** | Pick one of your authored PRs, edit its description in a temporary markdown editor, and update it when the tab closes. |
+| **Azure DevOps: Review Navigation: Show Next Changed File** | Opens the next visible changed file from the active PR diff. |
+| **Azure DevOps: Review Navigation: Show Previous Changed File** | Opens the previous visible changed file from the active PR diff. |
+| **Azure DevOps: Review State: Toggle Current File Reviewed** | Toggles the reviewed state of the active PR diff file. |
+| **Azure DevOps: Review State: Reset Reviewed Files (this PR)** | Clears the file-reviewed state for the selected PR. |
+| **Azure DevOps: Review State: Clear All Reviewed Files Data** | Clears every locally stored file-reviewed state. |
+| **Azure DevOps: Work Items: Open Work Item** | Opens a work item by ID, pre-filled from the current branch when available. |
+| **Azure DevOps: Work Items: Create Task for PR** | Creates a Task in the active sprint under a selected parent, assigns it to you, and can link it to the current branch's PR. |
+| **Azure DevOps: Workspace: Open Repository** | Opens the repository in Azure DevOps. |
 
 The PR sidebar context menu also includes **Edit Title**, which opens an input box pre-filled with the current pull request title and updates the PR immediately after confirmation.
 
@@ -103,7 +108,7 @@ The extension supports two authentication methods. By default, `azureDevops.auth
 
 #### Option A: Azure AD / Microsoft Account
 
-1. Run **Azure DevOps: Login with Azure AD** or **Azure DevOps: Configure Authentication**.
+1. Run **Azure DevOps: Authentication: Login with Azure AD** or **Azure DevOps: Authentication: Configure Authentication**.
 2. Follow the browser prompt to sign in with your Microsoft account.
 
 VS Code handles token refresh automatically. No PAT rotation is needed.
@@ -114,7 +119,7 @@ VS Code handles token refresh automatically. No PAT rotation is needed.
    - **Code**: Read
    - **Work Items**: Read
    - **Project and Team**: Read
-2. Run the command **Azure DevOps: Set Personal Access Token** or **Azure DevOps: Configure Authentication** and paste your token.
+2. Run **Azure DevOps: Authentication: Set Personal Access Token** or **Azure DevOps: Authentication: Configure Authentication** and paste your token.
 
 Your PAT is stored securely using VS Code's built-in SecretStorage API.
 
@@ -142,17 +147,11 @@ All settings are optional — the extension auto-detects values from your git re
 | `azureDevops.workItemProject` | Same as project | Project for work items, if different from the repo's project |
 | `azureDevops.team` | `"{project} Team"` | Azure DevOps team used when querying the current sprint/iteration for task creation. This should match the team segment from your sprint board URL, for example `stackportal` in `.../_sprints/taskboard/stackportal/...` |
 | `azureDevops.taskState` | `""` | Optional initial state for newly created Task work items, for example `Active`. Leave empty to use the process default |
-| `azureDevops.branchPrefix` | `""` | Personal branch prefix to strip (e.g., `lucac/`) when parsing branch names and generating the default PR title |
+| `azureDevops.branchPrefix` | `""` | Personal branch prefix to strip (e.g., `lucac/`) when generating task titles |
 | `azureDevops.workItemPattern` | Built-in patterns | Custom regex to extract work item ID from branch name |
-| `azureDevops.pullRequestLinkedWorkItemState` | `""` | Optional state to set on linked work item when creating a PR (leave empty to disable) |
-| `azureDevops.pullRequestAutoComplete` | `false` | Automatically set auto-complete on newly created pull requests |
-| `azureDevops.pullRequestMergeStrategy` | `squash` | Merge strategy to use when auto-completing a pull request |
-| `azureDevops.pullRequestDeleteSourceBranch` | `true` | Delete the source branch after merge when auto-complete is set |
-| `azureDevops.pullRequestCompleteWorkItems` | `true` | Complete associated work items after merge when auto-complete is set |
-| `azureDevops.showAssignedWorkItems` | `true` | Show a work item picker during PR creation to select assigned work items to link |
 | `azureDevops.pullRequestRefreshInterval` | `60` | Auto-refresh interval in seconds (minimum 30) |
-| `azureDevops.pullRequestAutoOpenInBrowser` | `false` | Automatically open the pull request in the browser after creation |
-| `azureDevops.richCopyUrl` | `false` | Copy a rich link with the PR title when copying the pull request URL |
+| `azureDevops.hideReviewedFiles` | `false` | Hide files you have marked as reviewed in the PR Changes tree view |
+| `azureDevops.autoMarkFilesReviewed` | `false` | Automatically mark a file reviewed after its PR diff opens |
 | `azureDevops.notificationScope` | `all` | Which PRs trigger notifications: `all` (all visible PRs), `participating` (only PRs you created or are assigned to), or `off` (no notifications) |
 
 ## Requirements

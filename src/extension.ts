@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import { createPullRequest } from './commands/createPr';
 import { openRepository } from './commands/openRepo';
 import { openWorkItem } from './commands/openWorkItem';
 import { configureAuthentication, setToken, removeToken, loginWithAzureAd, logoutFromAzureAd } from './auth';
@@ -73,7 +72,6 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Register commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('azureDevops.createPullRequest', () => createPullRequest(secretStorage)),
         vscode.commands.registerCommand('azureDevops.createTaskForPr', () => createTaskForPr(secretStorage)),
         vscode.commands.registerCommand('azureDevops.openRepository', openRepository),
         vscode.commands.registerCommand('azureDevops.openWorkItem', openWorkItem),
@@ -189,7 +187,23 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(prChangesTree);
 
-    function getActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+    interface ActivePrFileContext {
+        org: string;
+        repoId: string;
+        prId: number;
+        filePath: string;
+    }
+
+    interface PrChangedFileNavigation {
+        requestedFile: ActivePrFileContext;
+        targetFilePath: string;
+    }
+
+    let prChangedFileNavigationQueue: Promise<void> = Promise.resolve();
+    let lastPrChangedFileNavigation: PrChangedFileNavigation | undefined;
+    let queuedPrChangedFileNavigations = 0;
+
+    function getActivePrFileContext(): ActivePrFileContext | undefined {
         const uri = vscode.window.activeTextEditor?.document.uri;
         if (!uri) {
             return undefined;
@@ -208,7 +222,7 @@ export function activate(context: vscode.ExtensionContext) {
         return prCommentController.getReviewModeFileContext(uri);
     }
 
-    function getCurrentActivePrFileContext(): { org: string; repoId: string; prId: number; filePath: string } | undefined {
+    function getCurrentActivePrFileContext(): ActivePrFileContext | undefined {
         const activeFile = getActivePrFileContext();
         const selectedPr = prChangesProvider.getSelectedPrContext();
         if (
@@ -225,20 +239,60 @@ export function activate(context: vscode.ExtensionContext) {
         return activeFile;
     }
 
-    async function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
-        const activeFile = getCurrentActivePrFileContext();
-        if (!activeFile) {
-            return;
+    function isSamePrFileContext(left: ActivePrFileContext, right: ActivePrFileContext): boolean {
+        return left.org === right.org
+            && left.repoId === right.repoId
+            && left.prId === right.prId
+            && left.filePath === right.filePath;
+    }
+
+    function isStaleTreeItemError(error: unknown): boolean {
+        return error instanceof Error && error.message.startsWith('Cannot resolve tree item for element');
+    }
+
+    function navigatePrChangedFile(direction: 'next' | 'previous'): Promise<void> {
+        const requestedFile = getCurrentActivePrFileContext();
+        if (!requestedFile) {
+            return Promise.resolve();
         }
 
-        const adjacentFile = await prChangesProvider.getAdjacentFile(activeFile.filePath, direction);
-        if (!adjacentFile) {
-            safeShowInformationMessage(`No ${direction} changed file.`);
-            return;
-        }
+        const followsQueuedNavigation = queuedPrChangedFileNavigations > 0;
+        queuedPrChangedFileNavigations++;
+        const navigation = prChangedFileNavigationQueue.then(async () => {
+            const filePath = followsQueuedNavigation && lastPrChangedFileNavigation
+                && isSamePrFileContext(lastPrChangedFileNavigation.requestedFile, requestedFile)
+                ? lastPrChangedFileNavigation.targetFilePath
+                : requestedFile.filePath;
+            const adjacentFile = await prChangesProvider.getAdjacentFile(filePath, direction);
+            if (!adjacentFile) {
+                safeShowInformationMessage(`No ${direction} changed file.`);
+                return;
+            }
 
-        await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
-        await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+            const reviewConfiguration = vscode.workspace.getConfiguration('azureDevops');
+            const autoMarksReviewed = reviewConfiguration.get<boolean>('autoMarkFilesReviewed', false);
+            const hidesReviewed = reviewConfiguration.get<boolean>('hideReviewedFiles', false);
+            if (!autoMarksReviewed || !hidesReviewed) {
+                try {
+                    await prChangesTree.reveal(adjacentFile, { select: true, focus: false, expand: true });
+                } catch (error) {
+                    // Opening a prior diff can refresh the tree before a queued navigation reveals its item.
+                    if (!isStaleTreeItemError(error)) {
+                        throw error;
+                    }
+                }
+            }
+            await vscode.commands.executeCommand('azureDevops.openPrFileDiff', adjacentFile);
+
+            lastPrChangedFileNavigation = {
+                requestedFile,
+                targetFilePath: adjacentFile.change.item.path,
+            };
+        });
+        prChangedFileNavigationQueue = navigation.catch(() => undefined);
+        return navigation.finally(() => {
+            queuedPrChangedFileNavigations--;
+        });
     }
 
     async function toggleActivePrFileReviewed(): Promise<void> {
@@ -436,22 +490,29 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.reactivateThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.changeThreadStatus(item, 'active').then(() => prCommentController.refreshAll());
         }),
-        vscode.commands.registerCommand('azureDevops.inlineResolveThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'fixed');
+        vscode.commands.registerCommand('azureDevops.inlineResolveThread', async (thread: vscode.CommentThread) => {
+            await prCommentController.changeStatus(thread, 'fixed');
+            prChangesProvider.refresh();
         }),
         vscode.commands.registerCommand('azureDevops.inlineChangeThreadStatus', async (thread: vscode.CommentThread) => {
-            const choices: Array<vscode.QuickPickItem & { status: ThreadStatus }> = [
+            const currentStatus = thread.contextValue?.replace('prCommentThread.', '');
+            const allChoices: Array<vscode.QuickPickItem & { status: ThreadStatus }> = [
                 { label: 'Pending', status: 'pending' },
                 { label: "Won't Fix", status: 'wontFix' },
+                { label: 'By Design', status: 'byDesign' },
                 { label: 'Closed', status: 'closed' },
+                { label: 'Active', status: 'active' },
             ];
+            const choices = allChoices.filter(({ status }) => status !== currentStatus);
             const choice = await vscode.window.showQuickPick(choices, { placeHolder: 'Set thread status' });
             if (choice) {
                 await prCommentController.changeStatus(thread, choice.status);
+                prChangesProvider.refresh();
             }
         }),
-        vscode.commands.registerCommand('azureDevops.inlineReactivateThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'active');
+        vscode.commands.registerCommand('azureDevops.inlineReactivateThread', async (thread: vscode.CommentThread) => {
+            await prCommentController.changeStatus(thread, 'active');
+            prChangesProvider.refresh();
         }),
         vscode.commands.registerCommand('azureDevops.addGeneralComment', () => {
             return prChangesProvider.addGeneralComment();
@@ -462,7 +523,11 @@ export function activate(context: vscode.ExtensionContext) {
 
             // If the PR source branch is currently checked out, use the real on-disk file
             // for the modified side so language features (Go to Definition, etc.) work natively.
-            const reviewModeUri = await tryGetReviewModeUri(fileItem.sourceBranch, filePath);
+            const reviewModeUri = await tryGetReviewModeUri(fileItem.sourceBranch, filePath, {
+                organization: fileItem.org,
+                project: fileItem.project,
+                repository: fileItem.repositoryName,
+            });
 
             if (change.changeType === 'add') {
                 const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');
@@ -479,6 +544,10 @@ export function activate(context: vscode.ExtensionContext) {
                 await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${filePath}`);
             }
 
+            if (vscode.workspace.getConfiguration('azureDevops').get<boolean>('autoMarkFilesReviewed', false)) {
+                prChangesProvider.setReviewed(fileItem, true);
+            }
+
             // When using a real file for the modified side (review mode), register it with the
             // comment controller so comment creation and placement work on the real document.
             if (reviewModeUri && change.changeType !== 'delete') {
@@ -491,7 +560,10 @@ export function activate(context: vscode.ExtensionContext) {
 
             // A diff can reuse an already-open document. Reload thread data so it
             // includes replies added since this PR was last opened.
-            await prCommentController.refreshAll();
+            void prCommentController.refreshAll().catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : 'Unknown error';
+                safeShowErrorMessage(`Failed to refresh inline comments: ${message}`);
+            });
         }),
     );
 

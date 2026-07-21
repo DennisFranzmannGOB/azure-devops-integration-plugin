@@ -52,7 +52,9 @@ export class ReviewSession {
 
         this.changes.selectPr(pr, org);
         this.updates.selectPr(pr, org);
-        await this.comments.selectPr(pr, org, reviewMode);
+        // Inline comments are hydrated independently when a relevant diff document
+        // opens. Do not make selecting a PR wait for Azure DevOps thread requests.
+        void this.comments.selectPr(pr, org, reviewMode).catch(() => undefined);
         this.view.setTitle(`Changes: #${pr.pullRequestId}`);
         await this.view.reveal();
     }

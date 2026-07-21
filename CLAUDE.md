@@ -11,7 +11,6 @@ The extension is centered on four user workflows:
 - browse active Azure DevOps pull requests in a custom sidebar
 - review PR file changes and discussion inside VS Code
 - act on PRs: vote, comment, complete, abandon, open in browser, checkout branch
-- create pull requests from the current git branch, with work item support
 
 The implementation is lightweight:
 
@@ -106,14 +105,13 @@ Git helpers are intentionally simple in [src/git.ts](/Users/luca/Documents/vscod
 Available helpers (all accept an optional `cwd?: string` parameter to target a specific workspace folder):
 
 - `getCurrentBranch(cwd?)`
-- `getDefaultBranch(cwd?)`
 - `getRepositoryRoot(cwd?)`
 - `getRemoteUrl(cwd?)`
 
 Multi-root workspace support:
 
 - Most features default to `vscode.workspace.workspaceFolders?.[0]` when no `cwd` is passed
-- PR creation uses `pickRepository()` from `src/repoPicker.ts` to let the user choose a workspace folder when multiple Azure DevOps repos are open
+- Task creation uses `pickRepository()` from `src/repoPicker.ts` to let the user choose a workspace folder when multiple Azure DevOps repos are open
 - Expanding multi-root support to other commands can follow the same pattern: call `pickRepository()` and thread the `cwd` through
 
 ### Work Item Detection
@@ -136,13 +134,13 @@ Settings affecting this:
 - `azureDevops.branchPrefix`
 - `azureDevops.workItemPattern`
 
-This logic drives both PR creation defaults and the status bar item.
+This logic drives the status bar item.
 
 ## Commands And Where They Live
 
 ### Primary user commands
 
-- create PR: [src/commands/createPr.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/createPr.ts)
+- create task for PR: [src/commands/createTask.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/createTask.ts)
 - open repository: [src/commands/openRepo.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/openRepo.ts)
 - open work item: [src/commands/openWorkItem.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/openWorkItem.ts)
 - checkout PR branch: [src/commands/checkoutBranch.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/checkoutBranch.ts)
@@ -319,11 +317,7 @@ Major capabilities already implemented:
 - reply to threads
 - fetch thread lists
 - fetch PR details
-- create PRs
-- set PR auto-complete
 - resolve repository ID
-- update work item state
-- fetch assigned work items
 - fetch PR iterations
 - fetch PR changes
 - fetch file content for a specific commit
@@ -340,7 +334,6 @@ If an API change affects multiple features, expect fallout in:
 - sidebar PR enrichment
 - review views
 - PR action commands
-- PR creation
 
 ## Settings That Matter
 
@@ -358,17 +351,6 @@ Branch / work item parsing:
 - `azureDevops.branchPrefix`
 - `azureDevops.workItemPattern`
 
-PR creation behavior:
-
-- `azureDevops.pullRequestLinkedWorkItemState`
-- `azureDevops.pullRequestAutoComplete`
-- `azureDevops.pullRequestMergeStrategy`
-- `azureDevops.pullRequestDeleteSourceBranch`
-- `azureDevops.pullRequestCompleteWorkItems`
-- `azureDevops.showAssignedWorkItems`
-- `azureDevops.pullRequestAutoOpenInBrowser`
-- `azureDevops.richCopyUrl`
-
 Sidebar / notification behavior:
 
 - `azureDevops.pullRequestRefreshInterval`
@@ -379,42 +361,6 @@ If you add a setting:
 - declare it in [package.json](/Users/luca/Documents/vscode-extensions/azure-devops-integration/package.json)
 - read it in the relevant module
 - update [README.md](/Users/luca/Documents/vscode-extensions/azure-devops-integration/README.md) if behavior is user-facing
-
-## PR Creation Flow
-
-The PR creation flow in [src/commands/createPr.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/createPr.ts) is one of the most complex parts of the repo.
-
-Flow summary:
-
-1. resolve Azure DevOps config
-2. load PAT
-3. read current branch and default branch
-4. warn if user is on the default branch
-5. derive a default title from branch naming
-6. detect work item ID from branch name
-7. optionally fetch assigned work items and let the user multi-select them
-8. load PR template from repository files if present
-9. open a temporary document so the user can edit the description
-10. create the PR through Azure DevOps
-11. optionally update linked work item state
-12. optionally set auto-complete
-13. optionally auto-open in browser
-14. offer post-create actions: copy URL or open in browser
-
-Template lookup paths:
-
-- `.azuredevops/pull_request_template.md`
-- `.azuredevops/PULL_REQUEST_TEMPLATE.md`
-- `.azuredevops/pull_request_template.txt`
-- `pull_request_template.md`
-- `PULL_REQUEST_TEMPLATE.md`
-
-Windows-specific note:
-
-- rich clipboard HTML copy is implemented specially for Windows via PowerShell
-- non-Windows falls back to plain text clipboard copy
-
-If a PR creation change touches title generation, work item linking, template handling, or post-create actions, this is the file to edit.
 
 ## Where To Edit For Common Requests
 
@@ -458,7 +404,6 @@ If the request is about...
   - [src/commands/openRepo.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/openRepo.ts)
   - [src/commands/openWorkItem.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/openWorkItem.ts)
   - [src/commands/prActions.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/prActions.ts)
-  - [src/commands/createPr.ts](/Users/luca/Documents/vscode-extensions/azure-devops-integration/src/commands/createPr.ts)
 
 ## Testing And Validation
 
@@ -469,7 +414,6 @@ Current test coverage focuses on logic-heavy pieces such as:
 - tree item rendering
 - PR changes and discussion tree behavior
 - content providers
-- helper functions used by PR creation
 - comment notification behavior
 
 Mocked VS Code API:

@@ -36,6 +36,7 @@ export interface PrChange {
     changeType: string; // 'add' | 'edit' | 'delete' | 'rename'
     item: { path: string };
     originalPath?: string;
+    changeTrackingId?: number;
 }
 
 interface HttpGetResponse {
@@ -401,7 +402,9 @@ async function getCommentThreadSummary(
                 return summaries;
             }, []);
 
-        const unresolvedCommentCount = visibleThreads.filter((thread) => thread.status === 'active').length;
+        const unresolvedCommentCount = visibleThreads.filter(
+            (thread) => thread.status === 'active' || thread.status === 'pending'
+        ).length;
         return { unresolvedCommentCount, commentThreads: visibleThreads };
     } catch {
         return { unresolvedCommentCount: 0, commentThreads: [] };
@@ -837,15 +840,27 @@ export interface ThreadContext {
     leftFileEnd?: ThreadPosition;
 }
 
+export interface PullRequestThreadContext {
+    changeTrackingId: number;
+    iterationContext: {
+        firstComparingIteration: number;
+        secondComparingIteration: number;
+    };
+}
+
 export async function addPullRequestFileComment(
     org: string, project: string, repoId: string, prId: number,
-    content: string, threadContext: ThreadContext, token: string
+    content: string,
+    threadContext: ThreadContext,
+    pullRequestThreadContext: PullRequestThreadContext,
+    token: string,
 ): Promise<{ id: number; comments: Array<{ id: number }> }> {
     const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?api-version=7.1`;
     const response = await httpsRequest(url, 'POST', authHeaders(token), {
         comments: [{ parentCommentId: 0, content, commentType: 1 }],
         status: 1,
         threadContext,
+        pullRequestThreadContext,
     });
     return JSON.parse(response);
 }
@@ -927,39 +942,6 @@ export interface PullRequestDetails extends PullRequest {
     };
 }
 
-export interface CreatePullRequestOptions {
-    org: string;
-    project: string;
-    repoId: string;
-    sourceRefName: string;
-    targetRefName: string;
-    title: string;
-    description?: string;
-    workItemIds?: number[];
-    isDraft?: boolean;
-    token: string;
-}
-
-export async function createPullRequestApi(options: CreatePullRequestOptions): Promise<{ pullRequestId: number }> {
-    const { org, project, repoId, token, workItemIds, ...rest } = options;
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests?api-version=7.1`;
-
-    const body: Record<string, unknown> = {
-        sourceRefName: rest.sourceRefName,
-        targetRefName: rest.targetRefName,
-        title: rest.title,
-        description: rest.description ?? '',
-        isDraft: rest.isDraft ?? false,
-    };
-
-    if (workItemIds && workItemIds.length > 0) {
-        body.workItemRefs = workItemIds.map(id => ({ id: String(id) }));
-    }
-
-    const response = await httpsRequest(url, 'POST', authHeaders(token), body);
-    return JSON.parse(response);
-}
-
 export async function updatePullRequestDescription(
     org: string, project: string, repoId: string, prId: number,
     description: string, token: string
@@ -976,27 +958,6 @@ export async function updatePullRequestTitle(
     await httpsRequest(url, 'PATCH', authHeaders(token), { title });
 }
 
-export interface AutoCompleteOptions {
-    mergeStrategy: 'noFastForward' | 'squash' | 'rebase' | 'rebaseMerge';
-    deleteSourceBranch: boolean;
-    completeWorkItems: boolean;
-}
-
-export async function setAutoComplete(
-    org: string, project: string, repoId: string, prId: number,
-    userId: string, options: AutoCompleteOptions, token: string
-): Promise<void> {
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}?api-version=7.1`;
-    await httpsRequest(url, 'PATCH', authHeaders(token), {
-        autoCompleteSetBy: { id: userId },
-        completionOptions: {
-            mergeStrategy: options.mergeStrategy,
-            deleteSourceBranch: options.deleteSourceBranch,
-            transitionWorkItems: options.completeWorkItems,
-        },
-    });
-}
-
 export async function getRepositoryId(
     org: string, project: string, repoName: string, token: string
 ): Promise<string> {
@@ -1006,47 +967,11 @@ export async function getRepositoryId(
     return data.id;
 }
 
-export async function updateWorkItemState(
-    org: string, project: string, workItemId: number, state: string, token: string
-): Promise<void> {
-    const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
-    await httpsRequest(url, 'PATCH', {
-        ...authHeaders(token),
-        'Content-Type': 'application/json-patch+json',
-    }, [
-        { op: 'add', path: '/fields/System.State', value: state },
-    ]);
-}
-
 export interface WorkItem {
     id: number;
     title: string;
     state: string;
     type: string;
-}
-
-export async function getAssignedWorkItems(
-    org: string, project: string, token: string
-): Promise<WorkItem[]> {
-    const wiqlUrl =
-        `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}` +
-        `/_apis/wit/wiql?api-version=7.1`;
-    const wiqlBody = {
-        query:
-            "SELECT [System.Id] FROM WorkItems" +
-            " WHERE [System.AssignedTo] = @Me" +
-            " AND [System.State] NOT IN ('Done', 'Closed', 'Resolved', 'Removed')" +
-            " ORDER BY [System.ChangedDate] DESC",
-    };
-    const wiqlResponse = await httpsRequest(wiqlUrl, 'POST', authHeaders(token), wiqlBody);
-    const wiqlData = JSON.parse(wiqlResponse);
-    const workItemIds: number[] = (wiqlData.workItems as Array<{ id: number }>).map((wi) => wi.id);
-
-    if (workItemIds.length === 0) {
-        return [];
-    }
-
-    return fetchWorkItemsByIds(org, workItemIds, token);
 }
 
 async function fetchWorkItemsByIds(
@@ -1127,7 +1052,7 @@ export async function getPrChanges(
         changes.push(...((page.changeEntries ?? []) as PrChange[]));
         const header = response.headers?.['x-ms-continuationtoken'];
         continuationToken = Array.isArray(header) ? header[0] : header;
-        nextSkip = !continuationToken && typeof page.nextSkip === 'number' && Number.isInteger(page.nextSkip)
+        nextSkip = !continuationToken && typeof page.nextSkip === 'number' && Number.isInteger(page.nextSkip) && page.nextSkip > 0
             ? page.nextSkip
             : undefined;
     } while (continuationToken || nextSkip !== undefined);

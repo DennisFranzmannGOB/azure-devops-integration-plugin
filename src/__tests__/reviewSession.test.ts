@@ -47,6 +47,7 @@ class FakeComments {
     refreshCount = 0;
     selected?: SelectedPrContext;
     reviewMode = false;
+    selectPrPromise?: Promise<void>;
 
     clearAll(): void {
         this.clearCount++;
@@ -55,6 +56,7 @@ class FakeComments {
     async selectPr(pr: EnrichedPullRequest, org: string, reviewMode = false): Promise<void> {
         this.selected = buildSelectedPrContext(pr, org);
         this.reviewMode = reviewMode;
+        await this.selectPrPromise;
     }
 
     async refreshAll(): Promise<void> {
@@ -117,6 +119,22 @@ function createSession() {
 }
 
 describe('ReviewSession', () => {
+    it('reveals PR Changes without waiting for inline comments to load', async () => {
+        const { session, comments, view } = createSession();
+        let finishCommentLoad: (() => void) | undefined;
+        comments.selectPrPromise = new Promise<void>((resolve) => {
+            finishCommentLoad = resolve;
+        });
+
+        const selection = session.select(makePr(42), 'org');
+
+        await Promise.resolve();
+        expect(view.revealCount).toBe(1);
+
+        finishCommentLoad!();
+        await selection;
+    });
+
     it('selects a PR across review surfaces and opens the review view', async () => {
         const { session, changes, comments, updates, view } = createSession();
 

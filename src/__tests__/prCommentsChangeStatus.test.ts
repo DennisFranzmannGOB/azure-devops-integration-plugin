@@ -10,19 +10,31 @@ jest.mock('../auth', () => ({
 jest.mock('../api', () => ({
     getPrThreads: jest.fn(),
     getPrIterations: jest.fn(),
+    getPrChanges: jest.fn(),
     addPullRequestFileComment: jest.fn(),
     replyToThread: jest.fn(),
     searchIdentitiesByDisplayName: jest.fn(),
     updateThreadStatus: jest.fn(),
 }));
 
+jest.mock('../git', () => ({
+    getRepositoryRoot: jest.fn(),
+    getRemoteUrl: jest.fn(),
+}));
+
 const api = jest.requireMock('../api') as {
     getPrThreads: jest.Mock;
     getPrIterations: jest.Mock;
+    getPrChanges: jest.Mock;
     updateThreadStatus: jest.Mock;
     addPullRequestFileComment: jest.Mock;
     replyToThread: jest.Mock;
     searchIdentitiesByDisplayName: jest.Mock;
+};
+
+const git = jest.requireMock('../git') as {
+    getRepositoryRoot: jest.Mock;
+    getRemoteUrl: jest.Mock;
 };
 
 const auth = jest.requireMock('../auth') as {
@@ -136,10 +148,26 @@ describe('PrCommentController.changeStatus', () => {
         api.updateThreadStatus.mockResolvedValue(undefined);
         auth.getToken.mockReset();
         auth.getToken.mockResolvedValue('token');
+        git.getRepositoryRoot.mockReset();
+        git.getRepositoryRoot.mockImplementation(async (cwd: string) => cwd);
+        git.getRemoteUrl.mockReset();
+        git.getRemoteUrl.mockResolvedValue('https://dev.azure.com/org/proj/_git/repo');
         (vscode.window.showErrorMessage as jest.Mock).mockReset();
         (vscode.workspace as any).textDocuments = [];
         (vscode.workspace as any).workspaceFolders = undefined;
+        (vscode.workspace as any).workspaceFile = undefined;
+        (vscode.workspace.fs.stat as jest.Mock).mockReset();
+        (vscode.workspace.fs.stat as jest.Mock).mockResolvedValue({});
         (vscode.comments.createCommentController as jest.Mock).mockClear();
+    });
+
+    it('defers inline thread loading until a PR diff opens during normal review', async () => {
+        const controller = buildController({ dispose: jest.fn() });
+
+        await controller.selectPr(makePullRequest(), 'org');
+
+        expect(api.getPrIterations).not.toHaveBeenCalled();
+        expect(api.getPrThreads).not.toHaveBeenCalled();
     });
 
     it('places right-side comments for checked-out files before they are opened', async () => {
@@ -148,7 +176,7 @@ describe('PrCommentController.changeStatus', () => {
             dispose: jest.fn(),
         };
         const controller = buildController(mockVsThread);
-        (vscode.workspace as any).workspaceFolders = [{ uri: vscode.Uri.parse('file:///workspace') }];
+        (vscode.workspace as any).workspaceFolders = [{ uri: { fsPath: 'C:\\workspace' } }];
         api.getPrThreads.mockResolvedValue([makeThread()]);
 
         await controller.selectPr(makePullRequest(), 'org', true);
@@ -156,10 +184,92 @@ describe('PrCommentController.changeStatus', () => {
         const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
             .createCommentThread as jest.Mock;
         expect(createCommentThread).toHaveBeenCalledWith(
-            expect.objectContaining({ path: '/workspace/src/app.ts' }),
+            expect.objectContaining({ fsPath: 'C:\\workspace\\src\\app.ts' }),
             expect.anything(),
             expect.anything(),
         );
+    });
+
+    it('uses the workspace file directory instead of the first nested workspace folder', async () => {
+        const mockVsThread = {
+            comments: [],
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        (vscode.workspace as any).workspaceFolders = [
+            { uri: { fsPath: 'C:\\workspaces\\repository\\extensions\\first-module' } },
+        ];
+        (vscode.workspace as any).workspaceFile = {
+            fsPath: 'C:\\workspaces\\repository\\repository.code-workspace',
+        };
+        git.getRepositoryRoot.mockResolvedValue('C:\\workspaces\\repository');
+        api.getPrThreads.mockResolvedValue([makeThread({
+            threadContext: {
+                filePath: '/extensions/sample-module/src/Codeunit.al',
+                rightFileStart: { line: 10, offset: 1 },
+                rightFileEnd: { line: 10, offset: 1 },
+            },
+        })]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).toHaveBeenCalledWith(
+            expect.objectContaining({
+                fsPath: 'C:\\workspaces\\repository\\extensions\\sample-module\\src\\Codeunit.al',
+            }),
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it('places comments for files outside the first folder of a shared-repository workspace', async () => {
+        const mockVsThread = {
+            comments: [],
+            dispose: jest.fn(),
+        };
+        const controller = buildController(mockVsThread);
+        (vscode.workspace as any).workspaceFolders = [
+            { uri: { fsPath: 'C:\\workspaces\\repository\\extensions\\first-module' } },
+            { uri: { fsPath: 'C:\\workspaces\\repository\\extensions\\second-module' } },
+        ];
+        git.getRepositoryRoot.mockImplementation(async (cwd: string) => {
+            if (cwd.includes('second-module')) {
+                throw new Error('The second workspace folder must not be inspected');
+            }
+            return 'C:\\workspaces\\repository';
+        });
+        api.getPrThreads.mockResolvedValue([makeThread({
+            threadContext: {
+                filePath: '/extensions/sample-module/src/Codeunit.al',
+                rightFileStart: { line: 10, offset: 1 },
+                rightFileEnd: { line: 10, offset: 1 },
+            },
+        })]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).toHaveBeenCalledWith(
+            expect.objectContaining({
+                fsPath: 'C:\\workspaces\\repository\\extensions\\sample-module\\src\\Codeunit.al',
+            }),
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it('skips local placement when no workspace folder is open', async () => {
+        const controller = buildController({ dispose: jest.fn() });
+        api.getPrThreads.mockResolvedValue([makeThread()]);
+
+        await controller.selectPr(makePullRequest(), 'org', true);
+
+        const createCommentThread = (vscode.comments.createCommentController as jest.Mock).mock.results[0].value
+            .createCommentThread as jest.Mock;
+        expect(createCommentThread).not.toHaveBeenCalled();
     });
 
     it('calls updateThreadStatus with the requested status', async () => {
@@ -424,6 +534,12 @@ describe('PrCommentController.createThread on review-mode files', () => {
         }]);
         api.getPrThreads.mockReset();
         api.getPrThreads.mockResolvedValue([]);
+        api.getPrChanges.mockReset();
+        api.getPrChanges.mockResolvedValue([{
+            changeType: 'edit',
+            changeTrackingId: 17,
+            item: { path: '/src/app.ts' },
+        }]);
         api.addPullRequestFileComment.mockReset();
         api.addPullRequestFileComment.mockResolvedValue({ id: 99 });
         api.replyToThread.mockReset();
@@ -456,6 +572,10 @@ describe('PrCommentController.createThread on review-mode files', () => {
             'org', 'proj', 'repo1', 42,
             'Hello from review mode',
             expect.objectContaining({ filePath: '/src/app.ts', rightFileStart: expect.anything() }),
+            {
+                changeTrackingId: 17,
+                iterationContext: { firstComparingIteration: 3, secondComparingIteration: 3 },
+            },
             'token'
         );
     });
@@ -518,6 +638,10 @@ describe('PrCommentController.createThread on review-mode files', () => {
             'org', 'proj', 'repo1', 42,
             '@<user-1> Dennis das ist ein Test',
             expect.objectContaining({ filePath: '/src/app.ts', rightFileStart: expect.anything() }),
+            {
+                changeTrackingId: 17,
+                iterationContext: { firstComparingIteration: 3, secondComparingIteration: 3 },
+            },
             'token'
         );
         expect((mockVsThread.comments[0] as any).body.value).toBe('@<user-1> Dennis das ist ein Test');

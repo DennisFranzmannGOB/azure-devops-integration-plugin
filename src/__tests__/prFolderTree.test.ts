@@ -91,6 +91,68 @@ describe('Folder tree — PrFolderItem building', () => {
         expect((root[0] as PrFileItem).label).toBe('README.md');
     });
 
+    it('reuses the loaded PR snapshot until an explicit refresh', async () => {
+        api.getPrChanges.mockResolvedValue([makeChange('/README.md')]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+
+        await provider.getChildren();
+        await provider.getChildren();
+
+        expect(api.getPrIterations).toHaveBeenCalledTimes(1);
+        expect(api.getPrChanges).toHaveBeenCalledTimes(1);
+        expect(api.getPrThreads).toHaveBeenCalledTimes(1);
+
+        provider.refresh();
+        await provider.getChildren();
+
+        expect(api.getPrIterations).toHaveBeenCalledTimes(2);
+        expect(api.getPrChanges).toHaveBeenCalledTimes(2);
+        expect(api.getPrThreads).toHaveBeenCalledTimes(2);
+    });
+
+    it('shares concurrent root loads for the same PR snapshot', async () => {
+        let resolveIterations!: (value: Array<{
+            id: number;
+            sourceRefCommit: { commitId: string };
+            targetRefCommit: { commitId: string };
+        }>) => void;
+        api.getPrIterations.mockReturnValue(new Promise((resolve) => {
+            resolveIterations = resolve;
+        }));
+        api.getPrChanges.mockResolvedValue([makeChange('/README.md')]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        const firstLoad = provider.getChildren();
+        const secondLoad = provider.getChildren();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(api.getPrIterations).toHaveBeenCalledTimes(1);
+
+        resolveIterations([{
+            id: 1,
+            sourceRefCommit: { commitId: 'src123' },
+            targetRefCommit: { commitId: 'tgt456' },
+        }]);
+        await Promise.all([firstLoad, secondLoad]);
+    });
+
+    it('uses the loaded PR snapshot to locate a file', async () => {
+        api.getPrChanges.mockResolvedValue([makeChange('/README.md')]);
+
+        const provider = new PrChangesProvider({} as any);
+        provider.selectPr(makePr(), 'org');
+        await provider.getChildren();
+        const file = await provider.getFileItem('/README.md');
+
+        expect(file).toBeInstanceOf(PrFileItem);
+        expect(api.getPrIterations).toHaveBeenCalledTimes(1);
+        expect(api.getPrChanges).toHaveBeenCalledTimes(1);
+        expect(api.getPrThreads).toHaveBeenCalledTimes(1);
+    });
+
     it('does not compact folders that have multiple children', async () => {
         api.getPrChanges.mockResolvedValue([
             makeChange('/src/a/foo.ts'),
@@ -412,6 +474,9 @@ describe('Reviewed files / checkbox state', () => {
 
             expect(next?.change.item.path).toBe('/src/z-folder/z.ts');
             expect(previous?.change.item.path).toBe('/src/z-folder/z.ts');
+            expect(api.getPrIterations).toHaveBeenCalledTimes(1);
+            expect(api.getPrChanges).toHaveBeenCalledTimes(1);
+            expect(api.getPrThreads).toHaveBeenCalledTimes(1);
         });
 
         it('skips reviewed files when they are hidden', async () => {

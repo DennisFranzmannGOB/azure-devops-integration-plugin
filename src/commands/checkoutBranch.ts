@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { PullRequestItem } from '../prSidebar';
 import { execFile } from 'child_process';
+import { parseRemoteUrl } from '../config';
+import { getRemoteUrl } from '../git';
 
 function runGit(args: string[], cwd: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -12,6 +14,34 @@ function runGit(args: string[], cwd: string): Promise<string> {
             }
         });
     });
+}
+
+async function getPullRequestWorkspace(item: PullRequestItem): Promise<string | undefined> {
+    const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+    const organization = item.org;
+    const project = item.pr?.repository?.project?.name;
+    const repository = item.pr?.repository?.name;
+    if (!organization || !project || !repository) {
+        return workspaceFolders[0]?.uri.fsPath;
+    }
+
+    const expectedOrganization = organization.toLowerCase();
+    const expectedProject = project.toLowerCase();
+    const expectedRepository = repository.toLowerCase();
+    const candidates = await Promise.all(workspaceFolders.map(async (folder) => ({
+        cwd: folder.uri.fsPath,
+        remoteUrl: await getRemoteUrl(folder.uri.fsPath),
+    })));
+
+    return candidates.find(({ remoteUrl }) => {
+        if (!remoteUrl) {
+            return false;
+        }
+        const parsed = parseRemoteUrl(remoteUrl);
+        return parsed.organization?.toLowerCase() === expectedOrganization
+            && parsed.project?.toLowerCase() === expectedProject
+            && parsed.repository?.toLowerCase() === expectedRepository;
+    })?.cwd;
 }
 
 export async function checkoutPrBranch(item: PullRequestItem): Promise<boolean> {
@@ -27,9 +57,14 @@ export async function checkoutPrBranch(item: PullRequestItem): Promise<boolean> 
         return false;
     }
 
-    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const cwd = await getPullRequestWorkspace(item);
     if (!cwd) {
-        vscode.window.showErrorMessage('No workspace folder open.');
+        const repository = pr.repository?.name;
+        vscode.window.showErrorMessage(
+            repository
+                ? `No open workspace folder matches the pull request repository "${repository}".`
+                : 'No workspace folder open.',
+        );
         return false;
     }
 
@@ -37,8 +72,12 @@ export async function checkoutPrBranch(item: PullRequestItem): Promise<boolean> 
         await vscode.window.withProgress(
             { location: vscode.ProgressLocation.Notification, title: `Checking out ${branch}...` },
             async () => {
-                await runGit(['fetch', 'origin'], cwd);
-                await runGit(['checkout', branch], cwd);
+                try {
+                    await runGit(['checkout', branch], cwd);
+                } catch {
+                    await runGit(['fetch', 'origin'], cwd);
+                    await runGit(['checkout', branch], cwd);
+                }
             }
         );
         vscode.window.showInformationMessage(`Checked out branch: ${branch}`);

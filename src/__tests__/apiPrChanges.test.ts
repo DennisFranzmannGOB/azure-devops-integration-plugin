@@ -91,6 +91,45 @@ describe('pull request iteration changes', () => {
         expect(getMock).toHaveBeenCalledTimes(2);
         expect(getMock.mock.calls[1][0]).toContain('$skip=120');
     });
+
+    it('does not refetch a terminal page whose nextSkip is zero', async () => {
+        const getMock = jest.fn((
+            _url: string,
+            _options: unknown,
+            callback: (res: EventEmitter & { headers?: Record<string, string>; statusCode?: number }) => void,
+        ) => {
+            const res = new EventEmitter() as EventEmitter & { headers?: Record<string, string>; statusCode?: number };
+            res.statusCode = 200;
+            res.headers = {};
+
+            callback(res);
+            res.emit('data', JSON.stringify(
+                getMock.mock.calls.length === 1
+                    ? {
+                        changeEntries: [{ changeType: 'edit', item: { path: '/src/File0.ts' } }],
+                        nextSkip: 0,
+                    }
+                    : { changeEntries: [{ changeType: 'edit', item: { path: '/src/File0.ts' } }] },
+            ));
+            res.emit('end');
+
+            return {
+                on: jest.fn(),
+                setTimeout: jest.fn(),
+            };
+        });
+
+        jest.doMock('https', () => ({
+            get: getMock,
+            request: jest.fn(),
+        }));
+
+        const { getPrChanges } = require('../api') as typeof import('../api');
+        const changes = await getPrChanges('org', 'project', 'repo-id', 42, 3, 'token');
+
+        expect(changes).toHaveLength(1);
+        expect(getMock).toHaveBeenCalledTimes(1);
+    });
 });
 
 function makeChanges(start: number, count: number) {

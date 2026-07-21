@@ -531,6 +531,7 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
     private lastDetectedCurrentBranchMatch?: PullRequestItem;
     private lastDetectedCurrentBranchMatchKey?: string;
     private activePoll?: Promise<void>;
+    private activePullRequestFetch?: Promise<{ org: string; result: MyPullRequests } | undefined>;
 
     constructor(secretStorage: vscode.SecretStorage) {
         this.secretStorage = secretStorage;
@@ -691,6 +692,14 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         }
 
         for (const pr of allPrs) {
+            const isNewlyTrackedPr = !this.previousThreadSnapshot.has(pr.pullRequestId);
+            if (isNewlyTrackedPr) {
+                // We have no baseline for this PR yet (e.g. it was just
+                // reassigned or entered the notification scope). Don't treat
+                // its existing threads as new comments; just start tracking it.
+                continue;
+            }
+
             const previousThreads = this.previousThreadSnapshot.get(pr.pullRequestId) ?? new Map<number, number>();
             for (const thread of pr.commentThreads) {
                 const previousCommentId = previousThreads.get(thread.threadId);
@@ -745,7 +754,29 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<PullRequ
         }
     }
 
-    private async fetchPullRequests(): Promise<{ org: string; result: MyPullRequests } | undefined> {
+    private fetchPullRequests(): Promise<{ org: string; result: MyPullRequests } | undefined> {
+        if (this.activePullRequestFetch) {
+            return this.activePullRequestFetch;
+        }
+
+        const fetch = this.fetchPullRequestsOnce();
+        this.activePullRequestFetch = fetch;
+        void fetch.then(
+            () => this.clearActivePullRequestFetch(fetch),
+            () => this.clearActivePullRequestFetch(fetch),
+        );
+        return fetch;
+    }
+
+    private clearActivePullRequestFetch(
+        fetch: Promise<{ org: string; result: MyPullRequests } | undefined>,
+    ): void {
+        if (this.activePullRequestFetch === fetch) {
+            this.activePullRequestFetch = undefined;
+        }
+    }
+
+    private async fetchPullRequestsOnce(): Promise<{ org: string; result: MyPullRequests } | undefined> {
         const token = await getToken(this.secretStorage);
         if (!token) { return undefined; }
 

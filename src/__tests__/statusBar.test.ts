@@ -253,6 +253,7 @@ describe('createStatusBarItem', () => {
         });
 
         it('falls back to file watcher when git extension throws', async () => {
+            const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
             (vscode.extensions.getExtension as jest.Mock).mockImplementation(() => {
                 throw new Error('Extension not available');
             });
@@ -263,6 +264,8 @@ describe('createStatusBarItem', () => {
             await new Promise(process.nextTick);
 
             expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalled();
+            expect(consoleErrorSpy).not.toHaveBeenCalled();
+            consoleErrorSpy.mockRestore();
         });
     });
 });
