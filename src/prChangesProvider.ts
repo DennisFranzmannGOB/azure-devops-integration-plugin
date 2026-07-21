@@ -3,6 +3,7 @@ import { EnrichedPullRequest, getPrIterations, getPrChanges, getPrThreads, PrCha
 import { getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
 import { ResolvedThreadPaths, resolveThreadPaths } from './discussionNavigation';
+import { preloadReviewModeRepository } from './reviewMode';
 import { ReviewedFilesStore } from './reviewedFiles';
 
 export interface SelectedPrContext {
@@ -47,6 +48,7 @@ export class PrFileItem extends vscode.TreeItem {
         public readonly prId: number,
         public readonly sourceBranch: string = '',
         reviewed: boolean = false,
+        public readonly repositoryName: string = '',
     ) {
         const fileName = change.item.path.split('/').pop() ?? change.item.path;
         super(fileName, vscode.TreeItemCollapsibleState.None);
@@ -292,6 +294,8 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     private allFileItems: PrFileItem[] = [];
     private visibleFileItems: PrFileItem[] = [];
     private hasLoadedFileItems = false;
+    private rootItems?: PrChangesTreeItem[];
+    private rootItemsLoad?: Promise<PrChangesTreeItem[]>;
     private readonly parentItems = new Map<PrChangesTreeItem, PrChangesTreeItem | undefined>();
 
     constructor(
@@ -319,6 +323,11 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.selectedPr = pr;
         this.selectedOrg = org;
         this.currentIterationId = undefined;
+        const project = pr.repository?.project?.name;
+        const repository = pr.repository?.name;
+        if (project && repository) {
+            void preloadReviewModeRepository({ organization: org, project, repository });
+        }
         this.clearFileItems();
         this._onDidChangeTreeData.fire();
 
@@ -349,12 +358,14 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             item.change.item.path,
             reviewed,
         );
+        this.clearFileItems();
         this._onDidChangeTreeData.fire();
     }
 
     resetCurrentPr(): void {
         if (!this.reviewedStore || !this.selectedPr) { return; }
         this.reviewedStore.resetPr(this.selectedPr.pullRequestId);
+        this.clearFileItems();
         this._onDidChangeTreeData.fire();
     }
 
@@ -389,7 +400,9 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
     }
 
     async getFileItem(filePath: string): Promise<PrFileItem | undefined> {
-        await this.getRootItems();
+        if (!this.hasLoadedFileItems) {
+            await this.getRootItems();
+        }
         return this.allFileItems.find((item) => item.change.item.path === filePath);
     }
 
@@ -420,15 +433,42 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         return this.getRootItems();
     }
 
-    private async getRootItems(): Promise<PrChangesTreeItem[]> {
+    private getRootItems(): Promise<PrChangesTreeItem[]> {
         if (!this.selectedPr || !this.selectedOrg) {
             this.clearFileItems();
-            return [];
+            return Promise.resolve([]);
         }
 
+        if (this.rootItems) {
+            return Promise.resolve(this.rootItems);
+        }
+
+        if (this.rootItemsLoad) {
+            return this.rootItemsLoad;
+        }
+
+        const rootItemsLoad = this.loadRootItems();
+        this.rootItemsLoad = rootItemsLoad;
+        void rootItemsLoad.then(
+            () => this.clearRootItemsLoad(rootItemsLoad),
+            () => this.clearRootItemsLoad(rootItemsLoad),
+        );
+        return rootItemsLoad;
+    }
+
+    private clearRootItemsLoad(rootItemsLoad: Promise<PrChangesTreeItem[]>): void {
+        if (this.rootItemsLoad === rootItemsLoad) {
+            this.rootItemsLoad = undefined;
+        }
+    }
+
+    private async loadRootItems(): Promise<PrChangesTreeItem[]> {
         const selectionGeneration = this.selectionGeneration;
         const pr = this.selectedPr;
         const org = this.selectedOrg;
+        if (!pr || !org) {
+            return [];
+        }
         const token = await getToken(this.secretStorage);
         if (!token || !this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
 
@@ -438,7 +478,10 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         try {
             const iterations = await getPrIterations(org, project, repoId, pr.pullRequestId, token);
             if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
-            if (iterations.length === 0) { return []; }
+            if (iterations.length === 0) {
+                this.rootItems = [];
+                return this.rootItems;
+            }
 
             const lastIteration = iterations[iterations.length - 1];
             const [changes, threads] = await Promise.all([
@@ -511,7 +554,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
                 .map(c => {
                     const item = new PrFileItem(
                         c, org, project, repoId, sourceCommitId, targetCommitId, pr.pullRequestId, sourceBranch,
-                        reviewed.has(c.item.path),
+                        reviewed.has(c.item.path), pr.repository?.name ?? '',
                     );
                     const threads = fileThreads.get(c.item.path);
                     if (threads && threads.length > 0) {
@@ -558,6 +601,7 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
             rootItems.push(...visibleFileTree);
             this.setTreeParents(rootItems);
 
+            this.rootItems = rootItems;
             return rootItems;
         } catch (error: unknown) {
             if (!this.isCurrentSelection(pr, org, selectionGeneration)) { return []; }
@@ -572,6 +616,8 @@ export class PrChangesProvider implements vscode.TreeDataProvider<PrChangesTreeI
         this.allFileItems = [];
         this.visibleFileItems = [];
         this.hasLoadedFileItems = false;
+        this.rootItems = undefined;
+        this.rootItemsLoad = undefined;
         this.parentItems.clear();
     }
 

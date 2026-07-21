@@ -1,6 +1,14 @@
 import { PrChangesProvider } from '../prChangesProvider';
 import { EnrichedPullRequest } from '../api';
 
+jest.mock('../reviewMode', () => ({
+    preloadReviewModeRepository: jest.fn().mockResolvedValue([]),
+}));
+
+const { preloadReviewModeRepository } = jest.requireMock('../reviewMode') as {
+    preloadReviewModeRepository: jest.Mock;
+};
+
 function makePr(pullRequestId: number, repoId: string): EnrichedPullRequest {
     return {
         pullRequestId,
@@ -21,6 +29,22 @@ function makePr(pullRequestId: number, repoId: string): EnrichedPullRequest {
 }
 
 describe('PrChangesProvider selection tracking', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('preloads the matching workspace repository when selecting a PR', () => {
+        const provider = new PrChangesProvider({} as any);
+
+        provider.selectPr(makePr(42, 'repo1'), 'org');
+
+        expect(preloadReviewModeRepository).toHaveBeenCalledWith({
+            organization: 'org',
+            project: 'proj',
+            repository: 'repo',
+        });
+    });
+
     it('does not report a switch on the first selected PR', () => {
         const provider = new PrChangesProvider({} as any);
 

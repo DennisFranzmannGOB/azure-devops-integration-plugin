@@ -35,10 +35,6 @@ async function getContext(item: PullRequestItem, provider: PullRequestTreeProvid
         return undefined;
     }
     const userId = provider.cachedUserId;
-    if (!userId) {
-        vscode.window.showErrorMessage('User ID not available. Try refreshing.');
-        return undefined;
-    }
     const project = pr.repository?.project?.name ?? '';
     const repoId = pr.repository?.id ?? '';
     return { pr, org, token, userId, project, repoId };
@@ -62,6 +58,10 @@ export function registerPrActions(
             vscode.commands.registerCommand(command, async (item: PullRequestItem) => {
                 const ctx = await getContext(item, provider);
                 if (!ctx) { return; }
+                if (!ctx.userId) {
+                    vscode.window.showErrorMessage('User ID not available. Try refreshing.');
+                    return;
+                }
                 try {
                     await updateReviewerVote(ctx.org, ctx.project, ctx.repoId, ctx.pr.pullRequestId, ctx.userId, vote, ctx.token);
                     vscode.window.showInformationMessage(`PR #${ctx.pr.pullRequestId}: ${label}`);

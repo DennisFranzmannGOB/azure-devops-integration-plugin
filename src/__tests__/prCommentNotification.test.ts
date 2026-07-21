@@ -188,4 +188,30 @@ describe('PullRequestTreeProvider.checkForNewComments', () => {
             provider.checkForNewComments([makePr(1, 'My PR', 1, [makeThread(10, 101)])])
         ).resolves.toBeUndefined();
     });
+
+    it('does not notify on every existing thread when a PR newly enters tracking after initialization', async () => {
+        // First cycle tracks PR 1 only (e.g. PR 2 isn't assigned to the user yet).
+        await provider.checkForNewComments([makePr(1, 'PR A', 1, [makeThread(10, 100)])]);
+
+        // Second cycle: PR 2 appears for the first time with pre-existing threads
+        // (e.g. reassignment or a notification-scope change), none of which are new.
+        await provider.checkForNewComments([
+            makePr(1, 'PR A', 1, [makeThread(10, 100)]),
+            makePr(2, 'PR B', 2, [makeThread(20, 200), makeThread(21, 201)]),
+        ]);
+
+        expect(showInfoMock).not.toHaveBeenCalled();
+
+        // A genuinely new comment on the now-tracked PR 2 should still notify.
+        await provider.checkForNewComments([
+            makePr(1, 'PR A', 1, [makeThread(10, 100)]),
+            makePr(2, 'PR B', 2, [makeThread(20, 200), makeThread(21, 202)]),
+        ]);
+
+        expect(showInfoMock).toHaveBeenCalledWith(
+            'New comments on PR #2: PR B',
+            'Open Comment',
+            'Open in DevOps'
+        );
+    });
 });

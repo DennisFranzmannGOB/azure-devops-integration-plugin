@@ -96,4 +96,19 @@ describe('PullRequestTreeProvider.pollForNewComments', () => {
 
         expect(provider.getPullRequestById(1)?.commentThreads[0].latestCommentId).toBe(102);
     });
+
+    it('shares the startup poll with the initial sidebar load', async () => {
+        const provider = new PullRequestTreeProvider({} as vscode.SecretStorage);
+        const inFlightResult = deferred<MyPullRequests>();
+        getMyPullRequestsMock.mockImplementation(() => inFlightResult.promise);
+
+        const startupPoll = provider.pollForNewComments();
+        const initialLoad = provider.getChildren();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+
+        expect(getMyPullRequestsMock).toHaveBeenCalledTimes(1);
+
+        inFlightResult.resolve(makePullRequestResult(102));
+        await Promise.all([startupPoll, initialLoad]);
+    });
 });

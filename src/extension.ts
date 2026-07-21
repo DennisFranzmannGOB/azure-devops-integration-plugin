@@ -201,6 +201,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     let prChangedFileNavigationQueue: Promise<void> = Promise.resolve();
     let lastPrChangedFileNavigation: PrChangedFileNavigation | undefined;
+    let queuedPrChangedFileNavigations = 0;
 
     function getActivePrFileContext(): ActivePrFileContext | undefined {
         const uri = vscode.window.activeTextEditor?.document.uri;
@@ -255,8 +256,10 @@ export function activate(context: vscode.ExtensionContext) {
             return Promise.resolve();
         }
 
+        const followsQueuedNavigation = queuedPrChangedFileNavigations > 0;
+        queuedPrChangedFileNavigations++;
         const navigation = prChangedFileNavigationQueue.then(async () => {
-            const filePath = lastPrChangedFileNavigation
+            const filePath = followsQueuedNavigation && lastPrChangedFileNavigation
                 && isSamePrFileContext(lastPrChangedFileNavigation.requestedFile, requestedFile)
                 ? lastPrChangedFileNavigation.targetFilePath
                 : requestedFile.filePath;
@@ -287,7 +290,9 @@ export function activate(context: vscode.ExtensionContext) {
             };
         });
         prChangedFileNavigationQueue = navigation.catch(() => undefined);
-        return navigation;
+        return navigation.finally(() => {
+            queuedPrChangedFileNavigations--;
+        });
     }
 
     async function toggleActivePrFileReviewed(): Promise<void> {
@@ -485,8 +490,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('azureDevops.reactivateThread', (item: PrCommentThreadItem) => {
             return prChangesProvider.changeThreadStatus(item, 'active').then(() => prCommentController.refreshAll());
         }),
-        vscode.commands.registerCommand('azureDevops.inlineResolveThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'fixed');
+        vscode.commands.registerCommand('azureDevops.inlineResolveThread', async (thread: vscode.CommentThread) => {
+            await prCommentController.changeStatus(thread, 'fixed');
+            prChangesProvider.refresh();
         }),
         vscode.commands.registerCommand('azureDevops.inlineChangeThreadStatus', async (thread: vscode.CommentThread) => {
             const currentStatus = thread.contextValue?.replace('prCommentThread.', '');
@@ -501,10 +507,12 @@ export function activate(context: vscode.ExtensionContext) {
             const choice = await vscode.window.showQuickPick(choices, { placeHolder: 'Set thread status' });
             if (choice) {
                 await prCommentController.changeStatus(thread, choice.status);
+                prChangesProvider.refresh();
             }
         }),
-        vscode.commands.registerCommand('azureDevops.inlineReactivateThread', (thread: vscode.CommentThread) => {
-            return prCommentController.changeStatus(thread, 'active');
+        vscode.commands.registerCommand('azureDevops.inlineReactivateThread', async (thread: vscode.CommentThread) => {
+            await prCommentController.changeStatus(thread, 'active');
+            prChangesProvider.refresh();
         }),
         vscode.commands.registerCommand('azureDevops.addGeneralComment', () => {
             return prChangesProvider.addGeneralComment();
@@ -515,7 +523,11 @@ export function activate(context: vscode.ExtensionContext) {
 
             // If the PR source branch is currently checked out, use the real on-disk file
             // for the modified side so language features (Go to Definition, etc.) work natively.
-            const reviewModeUri = await tryGetReviewModeUri(fileItem.sourceBranch, filePath);
+            const reviewModeUri = await tryGetReviewModeUri(fileItem.sourceBranch, filePath, {
+                organization: fileItem.org,
+                project: fileItem.project,
+                repository: fileItem.repositoryName,
+            });
 
             if (change.changeType === 'add') {
                 const rightUri = reviewModeUri ?? buildPrFileUri(fileItem.org, fileItem.project, fileItem.repoId, fileItem.sourceCommitId, filePath, fileItem.prId, 'right');

@@ -36,6 +36,7 @@ export interface PrChange {
     changeType: string; // 'add' | 'edit' | 'delete' | 'rename'
     item: { path: string };
     originalPath?: string;
+    changeTrackingId?: number;
 }
 
 interface HttpGetResponse {
@@ -401,7 +402,9 @@ async function getCommentThreadSummary(
                 return summaries;
             }, []);
 
-        const unresolvedCommentCount = visibleThreads.filter((thread) => thread.status === 'active').length;
+        const unresolvedCommentCount = visibleThreads.filter(
+            (thread) => thread.status === 'active' || thread.status === 'pending'
+        ).length;
         return { unresolvedCommentCount, commentThreads: visibleThreads };
     } catch {
         return { unresolvedCommentCount: 0, commentThreads: [] };
@@ -837,15 +840,27 @@ export interface ThreadContext {
     leftFileEnd?: ThreadPosition;
 }
 
+export interface PullRequestThreadContext {
+    changeTrackingId: number;
+    iterationContext: {
+        firstComparingIteration: number;
+        secondComparingIteration: number;
+    };
+}
+
 export async function addPullRequestFileComment(
     org: string, project: string, repoId: string, prId: number,
-    content: string, threadContext: ThreadContext, token: string
+    content: string,
+    threadContext: ThreadContext,
+    pullRequestThreadContext: PullRequestThreadContext,
+    token: string,
 ): Promise<{ id: number; comments: Array<{ id: number }> }> {
     const url = `https://dev.azure.com/${encodeURIComponent(org)}/${encodeURIComponent(project)}/_apis/git/repositories/${repoId}/pullRequests/${prId}/threads?api-version=7.1`;
     const response = await httpsRequest(url, 'POST', authHeaders(token), {
         comments: [{ parentCommentId: 0, content, commentType: 1 }],
         status: 1,
         threadContext,
+        pullRequestThreadContext,
     });
     return JSON.parse(response);
 }
@@ -1037,7 +1052,7 @@ export async function getPrChanges(
         changes.push(...((page.changeEntries ?? []) as PrChange[]));
         const header = response.headers?.['x-ms-continuationtoken'];
         continuationToken = Array.isArray(header) ? header[0] : header;
-        nextSkip = !continuationToken && typeof page.nextSkip === 'number' && Number.isInteger(page.nextSkip)
+        nextSkip = !continuationToken && typeof page.nextSkip === 'number' && Number.isInteger(page.nextSkip) && page.nextSkip > 0
             ? page.nextSkip
             : undefined;
     } while (continuationToken || nextSkip !== undefined);

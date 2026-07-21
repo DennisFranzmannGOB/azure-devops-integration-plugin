@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { EnrichedPullRequest, PrThread, getPrThreads, getPrIterations, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus } from './api';
+import { EnrichedPullRequest, PrThread, getPrThreads, getPrIterations, getPrChanges, addPullRequestFileComment, replyToThread, searchIdentitiesByDisplayName, updateThreadStatus, ThreadStatus, PullRequestThreadContext } from './api';
 import { parsePrFileUri } from './prContentProvider';
 import { getAuthenticationRequiredMessage, getToken } from './auth';
 import { prepareCommentContentWithMentions } from './commentMentions';
-import { getRepositoryRoot } from './git';
+import { findMatchingWorkspaceRepositoryRoot } from './reviewMode';
 
 interface ThreadMeta {
     org: string;
@@ -26,6 +26,7 @@ interface SelectedPrCommentContext {
     org: string;
     project: string;
     repoId: string;
+    repositoryName: string;
     prId: number;
     reviewMode: boolean;
 }
@@ -155,10 +156,13 @@ export class PrCommentController implements vscode.Disposable {
             org,
             project: pr.repository?.project?.name ?? '',
             repoId: pr.repository?.id ?? '',
+            repositoryName: pr.repository?.name ?? '',
             prId: pr.pullRequestId,
             reviewMode,
         };
-        await this.refreshAll();
+        if (reviewMode) {
+            await this.refreshAll();
+        }
     }
 
     private isSelectedPr(org: string, project: string, repoId: string, prId: number): boolean {
@@ -246,28 +250,33 @@ export class PrCommentController implements vscode.Disposable {
         repoId: string,
         prId: number,
     ): Promise<vscode.Uri | undefined> {
-        if (!this.selectedPr?.reviewMode || !this.isSelectedPr(org, project, repoId, prId)) {
+        const selectedPr = this.selectedPr;
+        if (
+            !selectedPr?.reviewMode
+            || !selectedPr.repositoryName
+            || !this.isSelectedPr(org, project, repoId, prId)
+        ) {
             return undefined;
         }
 
-        const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
         const relativePath = filePath.split('/').filter(Boolean);
-        for (const workspaceFolder of workspaceFolders) {
-            const repositoryRoot = await getRepositoryRoot(workspaceFolder.uri.fsPath);
-            if (!repositoryRoot) {
-                continue;
-            }
-
-            const uri = vscode.Uri.file(path.join(repositoryRoot, ...relativePath));
-            try {
-                await vscode.workspace.fs.stat(uri);
-                return uri;
-            } catch {
-                // This workspace folder does not contain the commented file.
-            }
+        const repositoryRoot = await findMatchingWorkspaceRepositoryRoot({
+            organization: selectedPr.org,
+            project: selectedPr.project,
+            repository: selectedPr.repositoryName,
+        });
+        if (!repositoryRoot) {
+            return undefined;
         }
 
-        return undefined;
+        const uri = vscode.Uri.file(path.join(repositoryRoot, ...relativePath));
+        try {
+            await vscode.workspace.fs.stat(uri);
+            return uri;
+        } catch {
+            // The workspace repository does not contain the commented file.
+            return undefined;
+        }
     }
 
     private createVsThread(
@@ -289,6 +298,35 @@ export class PrCommentController implements vscode.Disposable {
         vsThread.contextValue = `prCommentThread.${thread.status ?? 'unknown'}`;
         this.threadMeta.set(vsThread, meta);
         return vsThread;
+    }
+
+    private async getPullRequestThreadContext(
+        org: string,
+        project: string,
+        repoId: string,
+        prId: number,
+        filePath: string,
+        token: string,
+    ): Promise<PullRequestThreadContext> {
+        const iterations = await getPrIterations(org, project, repoId, prId, token);
+        const iterationId = iterations.at(-1)?.id;
+        if (iterationId === undefined) {
+            throw new Error('Pull request iteration data is not available. Refresh the review and try again.');
+        }
+
+        const changes = await getPrChanges(org, project, repoId, prId, iterationId, token);
+        const changeTrackingId = changes.find((change) => change.item?.path === filePath)?.changeTrackingId;
+        if (changeTrackingId === undefined) {
+            throw new Error(`Change tracking data is not available for ${filePath}. Refresh the review and try again.`);
+        }
+
+        return {
+            changeTrackingId,
+            iterationContext: {
+                firstComparingIteration: iterationId,
+                secondComparingIteration: iterationId,
+            },
+        };
     }
 
     async createThread(reply: vscode.CommentReply): Promise<void> {
@@ -317,6 +355,9 @@ export class PrCommentController implements vscode.Disposable {
         const endPosition = { line: endLine, offset: 1 };
 
         try {
+            const pullRequestThreadContext = await this.getPullRequestThreadContext(
+                org, project, repoId, prId, filePath, token,
+            );
             const preparedText = await prepareCommentContentWithMentions(
                 reply.text,
                 (lookupName) => searchIdentitiesByDisplayName(org, lookupName, token),
@@ -330,6 +371,7 @@ export class PrCommentController implements vscode.Disposable {
                         ? { rightFileStart: startPosition, rightFileEnd: endPosition }
                         : { leftFileStart: startPosition, leftFileEnd: endPosition }),
                 },
+                pullRequestThreadContext,
                 token
             );
 

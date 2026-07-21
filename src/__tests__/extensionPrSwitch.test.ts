@@ -304,6 +304,36 @@ describe('extension PR switching cleanup', () => {
         expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'active');
     });
 
+    it('refreshes the PR Changes tree after resolving a thread inline', async () => {
+        const inlineResolveThread = getRegisteredCommand('azureDevops.inlineResolveThread');
+        const thread = {} as vscode.CommentThread;
+
+        await inlineResolveThread(thread);
+
+        expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'fixed');
+        expect(mockPrChangesProvider.refresh).toHaveBeenCalled();
+    });
+
+    it('refreshes the PR Changes tree after picking a status from the inline status picker', async () => {
+        const changeInlineThreadStatus = getRegisteredCommand('azureDevops.inlineChangeThreadStatus');
+        const thread = {} as vscode.CommentThread;
+        (vscode.window.showQuickPick as jest.Mock).mockResolvedValue({ label: 'Pending', status: 'pending' });
+
+        await changeInlineThreadStatus(thread);
+
+        expect(mockPrChangesProvider.refresh).toHaveBeenCalled();
+    });
+
+    it('refreshes the PR Changes tree after reactivating a thread inline', async () => {
+        const inlineReactivateThread = getRegisteredCommand('azureDevops.inlineReactivateThread');
+        const thread = {} as vscode.CommentThread;
+
+        await inlineReactivateThread(thread);
+
+        expect(mockPrCommentController.changeStatus).toHaveBeenCalledWith(thread, 'active');
+        expect(mockPrChangesProvider.refresh).toHaveBeenCalled();
+    });
+
     it('reloads inline comments whenever a PR file diff opens', async () => {
         const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
         const fileItem = {
@@ -358,6 +388,80 @@ describe('extension PR switching cleanup', () => {
             resolveRefresh?.();
             await opening;
         }
+    });
+
+    it('waits for a pending review-mode lookup so the local file is preserved', async () => {
+        const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
+        const { tryGetReviewModeUri } = jest.requireMock('../reviewMode') as { tryGetReviewModeUri: jest.Mock };
+        const reviewModeUri = { toString: () => 'file:///repo/src/app.ts' };
+        let resolveReviewModeLookup: ((uri: typeof reviewModeUri) => void) | undefined;
+        tryGetReviewModeUri.mockImplementationOnce(() => new Promise<typeof reviewModeUri>((resolve) => {
+            resolveReviewModeLookup = resolve;
+        }));
+
+        let completed = false;
+        const opening = openPrFileDiff({
+            change: { changeType: 'edit', item: { path: '/src/app.ts' } },
+            sourceBranch: 'feature/example',
+            org: 'org',
+            project: 'proj',
+            repoId: 'repo1',
+            sourceCommitId: 'source',
+            targetCommitId: 'target',
+            prId: 42,
+            repositoryName: 'repo-name',
+        }).then(() => {
+            completed = true;
+        });
+
+        try {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(completed).toBe(false);
+            expect(tryGetReviewModeUri).toHaveBeenCalledWith('feature/example', '/src/app.ts', {
+                organization: 'org',
+                project: 'proj',
+                repository: 'repo-name',
+            });
+            resolveReviewModeLookup!(reviewModeUri);
+            await opening;
+            expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+                'vscode.diff',
+                expect.anything(),
+                reviewModeUri,
+                '/src/app.ts',
+            );
+        } finally {
+            resolveReviewModeLookup?.(reviewModeUri);
+            await opening;
+        }
+    });
+
+    it('uses the local file when review-mode lookup takes longer than 100 ms', async () => {
+        const openPrFileDiff = getRegisteredCommand('azureDevops.openPrFileDiff');
+        const reviewModeUri = { toString: () => 'file:///repo/src/app.ts' };
+        const { tryGetReviewModeUri } = jest.requireMock('../reviewMode') as { tryGetReviewModeUri: jest.Mock };
+        tryGetReviewModeUri.mockImplementationOnce(() => new Promise((resolve) => {
+            setTimeout(() => resolve(reviewModeUri), 150);
+        }));
+
+        await openPrFileDiff({
+            change: { changeType: 'edit', item: { path: '/src/app.ts' } },
+            sourceBranch: 'feature/example',
+            org: 'org',
+            project: 'proj',
+            repoId: 'repo1',
+            sourceCommitId: 'source',
+            targetCommitId: 'target',
+            prId: 42,
+            repositoryName: 'repo-name',
+        });
+
+        expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+            'vscode.diff',
+            expect.anything(),
+            reviewModeUri,
+            '/src/app.ts',
+        );
     });
 
     it('marks a file reviewed after opening its diff when auto marking is enabled', async () => {
@@ -498,6 +602,24 @@ describe('extension PR switching cleanup', () => {
         expect(mockPrChangesProvider.getAdjacentFile).toHaveBeenNthCalledWith(2, '/src/next.ts', 'next');
         expect(vscode.commands.executeCommand).toHaveBeenCalledWith('azureDevops.openPrFileDiff', finalFile);
         expect(prChangesTree.reveal).toHaveBeenCalledWith(finalFile, { select: true, focus: false, expand: true });
+    });
+
+    it('navigates from the manually reactivated PR diff instead of a prior navigation target', async () => {
+        const nextChangedFile = getRegisteredCommand('azureDevops.nextPrChangedFile');
+        const nextFile = {
+            change: { changeType: 'edit', item: { path: '/src/next.ts' } },
+        };
+        mockPrChangesProvider.getSelectedPrContext.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42 });
+        mockPrChangesProvider.getAdjacentFile.mockResolvedValue(nextFile);
+        (vscode.window as any).activeTextEditor = { document: { uri: {} } };
+        const { parsePrFileUri } = jest.requireMock('../prContentProvider') as { parsePrFileUri: jest.Mock };
+        parsePrFileUri.mockReturnValue({ org: 'org', repoId: 'repo1', prId: 42, filePath: '/src/current.ts' });
+
+        await nextChangedFile();
+        await nextChangedFile();
+
+        expect(mockPrChangesProvider.getAdjacentFile).toHaveBeenNthCalledWith(1, '/src/current.ts', 'next');
+        expect(mockPrChangesProvider.getAdjacentFile).toHaveBeenNthCalledWith(2, '/src/current.ts', 'next');
     });
 
     it('does not reveal a next file that auto-review hides', async () => {

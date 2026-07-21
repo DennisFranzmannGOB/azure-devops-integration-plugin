@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { execFile } from 'child_process';
 
+const GIT_COMMAND_TIMEOUT_MS = 5_000;
+
 function getWorkspaceFolder(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
@@ -11,7 +13,12 @@ function runGitCommand(args: string[], overrideCwd?: string): Promise<string | u
         return Promise.resolve(undefined);
     }
     return new Promise((resolve) => {
-        execFile('git', args, { cwd, encoding: 'utf-8', windowsHide: true }, (error, stdout) => {
+        execFile('git', args, {
+            cwd,
+            encoding: 'utf-8',
+            windowsHide: true,
+            timeout: GIT_COMMAND_TIMEOUT_MS,
+        }, (error, stdout) => {
             if (error) {
                 resolve(undefined);
             } else {

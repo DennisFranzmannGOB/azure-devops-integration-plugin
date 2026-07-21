@@ -94,9 +94,8 @@ async function subscribeToBranchChanges(
             context.subscriptions.push(repoDisposable);
             return;
         }
-    } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('Git extension not available, falling back to file watcher', e);
+    } catch {
+        // The Git extension API is optional; use the file watcher below when unavailable.
     }
 
     // Fallback: watch .git/HEAD file for branch changes
